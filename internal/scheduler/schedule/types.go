@@ -59,10 +59,10 @@ type Candidate struct {
 
 // Placement records the outcome of scheduling one workload.
 type Placement struct {
-	OK           bool
-	Candidate    Candidate
-	TotalScore   int64
-	PluginScores []PluginScore
+	OK         bool
+	Candidate  Candidate
+	TotalScore int64
+	Breakdown  []ScoreBreakdown
 }
 
 // Weights configures soft scoring dimensions. Zero weight disables a factor.

@@ -141,8 +141,8 @@ func (l *CpodJobLogic) CpodJob(req *types.CpodJobReq) (resp *types.CpodJobResp, 
 						assignedNodes[node] = true
 						schedule.ApplyPlacement(clusterSnapshots, placement, wl)
 						placed = true
-						l.Logger.Infof("user_job framework score=%d cpod_id=%s node=%s job_id=%d plugins=%+v",
-							placement.TotalScore, req.CpodId, node.NodeName, job.JobId, placement.PluginScores)
+						l.Logger.Infof("user_job schedule score=%d cpod_id=%s node=%s job_id=%d breakdown=%+v",
+							placement.TotalScore, req.CpodId, node.NodeName, job.JobId, placement.Breakdown)
 					}
 				}
 			}

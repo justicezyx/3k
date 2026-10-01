@@ -18,7 +18,7 @@ func TestScore_prefersCacheAndHeadroom(t *testing.T) {
 				ID: 2, CpodID: "cpod-b", NodeName: "n1", GPUProduct: "H100",
 				GPUAllocatable: 8, GPUTotal: 8, CPUAllocatable: 32,
 			}},
-			CacheIDs: map[string]struct{}{"model-llama": {}},
+			CacheIDs:        map[string]struct{}{"model-llama": {}},
 			GPUPricePerHour: 10,
 		},
 	}
@@ -66,3 +66,29 @@ func TestScore_pinCluster(t *testing.T) {
 	}
 }
 
+func TestNormalizeScores_flat(t *testing.T) {
+	got := normalizeScores([]int64{10, 10, 10})
+	for i, v := range got {
+		if v != MaxNodeScore {
+			t.Fatalf("index %d: flat rule want %d got %d", i, MaxNodeScore, v)
+		}
+	}
+	gotZero := normalizeScores([]int64{0, 0})
+	for i, v := range gotZero {
+		if v != 0 {
+			t.Fatalf("index %d: want 0 got %d", i, v)
+		}
+	}
+}
+
+func TestSchedule_rejectsInsufficientGPU(t *testing.T) {
+	clusters := []ClusterSnapshot{{
+		CpodID: "c1",
+		Nodes:  []NodeSnapshot{{ID: 1, GPUProduct: "A100", GPUAllocatable: 0, GPUTotal: 8, CPUAllocatable: 8}},
+	}}
+	w := Workload{GPUProduct: "H100", GPUCount: 1, CPUCores: 1}
+	p := Score(w, clusters, DefaultWeights())
+	if p.OK {
+		t.Fatal("expected no feasible node")
+	}
+}

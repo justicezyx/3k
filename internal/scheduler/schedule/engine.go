@@ -1,26 +1,24 @@
 package schedule
 
-// Score selects the best candidate using the default kube-style scheduling framework.
+// Score selects the best (cluster, node) for workload using the internal global scheduler.
 func Score(workload Workload, clusters []ClusterSnapshot, weights Weights) Placement {
-	return DefaultFramework(weights).Schedule(workload, clusters)
+	return schedule(workload, clusters, weights)
 }
 
 // ScoreForCluster returns the global best placement only if it belongs to requestCpodID.
 func ScoreForCluster(workload Workload, clusters []ClusterSnapshot, weights Weights, requestCpodID string) Placement {
 	p := Score(workload, clusters, weights)
 	if !p.OK || p.Candidate.Cluster.CpodID != requestCpodID {
-		return Placement{OK: false, TotalScore: p.TotalScore, PluginScores: p.PluginScores}
+		return Placement{OK: false, TotalScore: p.TotalScore, Breakdown: p.Breakdown}
 	}
 	return p
 }
 
-// FeasibleCandidates lists candidates passing all Filter plugins (test / debug helper).
+// FeasibleCandidates lists candidates that pass hard resource and affinity checks.
 func FeasibleCandidates(workload Workload, clusters []ClusterSnapshot) []Candidate {
-	fw := DefaultFramework(DefaultWeights())
-	state := NewCycleState()
 	var out []Candidate
 	for _, c := range enumerateCandidates(clusters) {
-		if fw.runFilters(state, workload, c) {
+		if feasibleCandidate(workload, c) {
 			out = append(out, c)
 		}
 	}
