@@ -217,11 +217,12 @@ Scheduling:
 
 ---
 
-## 九、可观测性
+## 九、可观测性与测试
 
 - 日志：`schedule score=... breakdown=[{name,raw,norm,weight,weighted}]`
 - 指标（建议）：`scheduler_placement_total{result=assigned|skipped|infeasible}`、`scheduler_score_histogram`
-- API（可选）：管理员查询某 job 最近一次打分明细
+- 单元测试：`internal/scheduler/schedule/*_test.go`
+- 探索性压测：`explore_stress_test.go`（`go test -run Explore`；`-short` 跳过）— 统计 tie-break 偏置、归一化坍缩、pull 模型饿死、贪心序贯 vs 小规模最优装箱等退化行为，结果仅 `t.Log` 不强制 CI 失败
 
 ---
 
@@ -245,8 +246,6 @@ Scheduling:
 ---
 
 ## 十一、相关文档
-
-- [Kubernetes Scheduling Framework](https://kubernetes.io/docs/concepts/scheduling-eviction/scheduling-framework/)（扩展点与 NormalizeScore 语义参考）
 
 - [SYSTEM_ARCHITECTURE.md](./SYSTEM_ARCHITECTURE.md)
 - CPod 资源模型：`cpodoperator/pkg/resource/resource.go`

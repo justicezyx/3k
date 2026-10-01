@@ -1,11 +1,8 @@
 package schedule
 
-import (
-	"fmt"
-	"sort"
-)
+import "sort"
 
-// MaxNodeScore is the per-dimension score ceiling after min-max normalization (same scale as kube-scheduler).
+// MaxNodeScore is the per-dimension score ceiling after min-max normalization.
 const MaxNodeScore int64 = 100
 
 const (
@@ -24,11 +21,20 @@ type ScoreBreakdown struct {
 	Weighted   int64
 }
 
-func (b ScoreBreakdown) String() string {
-	return fmt.Sprintf("%s raw=%d norm=%d weight=%d weighted=%d", b.Name, b.Score, b.Normalized, b.Weight, b.Weighted)
+// Score selects the best (cluster, node) for workload.
+func Score(workload Workload, clusters []ClusterSnapshot, weights Weights) Placement {
+	return schedule(workload, clusters, weights)
 }
 
-// schedule runs filter → score → normalize → weighted pick (fixed internal policy, not pluggable).
+// ScoreForCluster returns the global best placement only if it belongs to requestCpodID.
+func ScoreForCluster(workload Workload, clusters []ClusterSnapshot, weights Weights, requestCpodID string) Placement {
+	p := Score(workload, clusters, weights)
+	if !p.OK || p.Candidate.Cluster.CpodID != requestCpodID {
+		return Placement{OK: false, TotalScore: p.TotalScore}
+	}
+	return p
+}
+
 func schedule(workload Workload, clusters []ClusterSnapshot, weights Weights) Placement {
 	candidates := enumerateCandidates(clusters)
 	if len(candidates) == 0 {
@@ -91,10 +97,10 @@ func schedule(workload Workload, clusters []ClusterSnapshot, weights Weights) Pl
 
 	best := scored[0]
 	return Placement{
-		OK:           true,
-		Candidate:    feasible[best.idx],
-		TotalScore:   best.total,
-		Breakdown:    best.breakdowns,
+		OK:         true,
+		Candidate:  feasible[best.idx],
+		TotalScore: best.total,
+		Breakdown:  best.breakdowns,
 	}
 }
 

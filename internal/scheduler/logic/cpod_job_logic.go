@@ -125,8 +125,6 @@ func (l *CpodJobLogic) CpodJob(req *types.CpodJobReq) (resp *types.CpodJobResp, 
 			placed := false
 			if schedEnabled {
 				wl := schedule.Workload{
-					ID:         strconv.FormatInt(job.JobId, 10),
-					Kind:       schedule.WorkloadTraining,
 					GPUProduct: job.GpuType.String,
 					GPUCount:   job.GpuNumber.Int64,
 					CPUCores:   1,
