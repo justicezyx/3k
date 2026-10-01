@@ -57,21 +57,12 @@ type Candidate struct {
 	Node    NodeSnapshot
 }
 
-// FactorScore records one scoring dimension for explainability.
-type FactorScore struct {
-	Name       string
-	Raw        float64
-	Normalized float64
-	Weight     float64
-	Weighted   float64
-}
-
 // Placement records the outcome of scheduling one workload.
 type Placement struct {
-	OK         bool
-	Candidate  Candidate
-	TotalScore float64
-	Factors    []FactorScore
+	OK           bool
+	Candidate    Candidate
+	TotalScore   int64
+	PluginScores []PluginScore
 }
 
 // Weights configures soft scoring dimensions. Zero weight disables a factor.

@@ -34,7 +34,7 @@ func TestScore_prefersCacheAndHeadroom(t *testing.T) {
 		t.Fatal("expected feasible placement")
 	}
 	if p.Candidate.Cluster.CpodID != "cpod-b" {
-		t.Fatalf("expected cpod-b (cache + headroom), got %s score=%f", p.Candidate.Cluster.CpodID, p.TotalScore)
+		t.Fatalf("expected cpod-b (cache + headroom), got %s score=%d", p.Candidate.Cluster.CpodID, p.TotalScore)
 	}
 }
 
@@ -66,11 +66,3 @@ func TestScore_pinCluster(t *testing.T) {
 	}
 }
 
-func TestNormalizeHigherBetter_flat(t *testing.T) {
-	got := normalizeHigherBetter([]float64{3, 3, 3})
-	for i, v := range got {
-		if v != 0.5 {
-			t.Fatalf("index %d: want 0.5 got %v", i, v)
-		}
-	}
-}

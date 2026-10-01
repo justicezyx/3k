@@ -1,6 +1,6 @@
-# 3k Global Scheduler：多集群加权归一化打分调度设计
+# 3k Global Scheduler：多集群调度框架设计（对齐 kube-scheduler）
 
-本文档描述算想云 Portal Scheduler（`internal/scheduler`）在多 CPod（多 Kubernetes 集群）场景下的**全局调度**方案：在硬约束过滤之后，对可行 `(cluster, node)` 候选使用**加权归一化打分（Weighted Normalized Scoring, WNS）**选优，替代当前的「先拉取先适配（first-fit on poll order）」策略。
+本文档描述算想云 Portal Scheduler（`internal/scheduler`）在多 CPod（多 Kubernetes 集群）场景下的**全局调度**方案：实现与 **kube-scheduler Scheduling Framework** 同构的扩展点（Filter → Score → NormalizeScore → 加权求和），在可行 `(cluster, node)` 候选上选优，替代「先拉取先适配（first-fit on poll order）」。
 
 ## 一、背景与现状
 
@@ -49,75 +49,101 @@ sequenceDiagram
 | 渐进落地 | 先训练/微调 Job，再推理/JupyterLab/AppJob；API 与 CPod pull 模型不变 |
 | 兼容亲和 | 用户指定 `cpod_id`、GPU 型号等硬约束保持不变 |
 
-非目标（本期）：跨集群 gang scheduling、抢占、实时 GPU 拓扑（NVLink/IB 感知）、与 K8s default scheduler 统一插件链。
+非目标（本期）：跨集群 gang scheduling、抢占、与 CPod 内 default scheduler **共用同一插件二进制**（逻辑对齐，非进程合并）。
 
 ---
 
-## 三、核心模型
+## 三、与 kube-scheduler 的对应关系
 
-### 3.1 调度单元
+3k 的「节点」= `(CPod, K8s Node)`；「Pod」= Portal 上一条待下发的 Workload（训练/推理等）。
+
+| kube-scheduler 扩展点 | 3k Global Scheduler | 说明 |
+|----------------------|---------------------|------|
+| **Scheduling Queue** | DB `obtain_status=待下发` + 任务创建时间 | 等价待调度队列；后续可加 QueueSortPlugin |
+| **PreFilter** | （预留）`CycleState` | 集群级预过滤、资源预占 |
+| **Filter** | `FilterPlugin` | 硬约束，失败则 `Unschedulable` |
+| **PostFilter** | （预留） | 无可行节点时的回溯 / 抢占 |
+| **PreScore** | （预留） | 缩小候选集 |
+| **Score** | `ScorePlugin.Score()` | 每个插件返回 `int64` 原始分 |
+| **NormalizeScore** | `normalizePluginScores()` | 与 upstream 相同：缩放到 `[0, MaxNodeScore]`，`MaxNodeScore=100` |
+| **Bind** | `CpodJob` 写 `cpod_id` + CPod pull | 等价绑定到集群 |
+| **Reserve** | Portal 扣减 `*_allocatable` | 短期占位；真实容量以心跳为准 |
+
+### 3.1 内置插件与 upstream 插件类比
+
+| 3k 插件名 | 类型 | 类比 kube-scheduler 插件 |
+|-----------|------|---------------------------|
+| `CpodSelector` | Filter | `NodeAffinity` / `InterPodAffinity`（required）— 用户指定 CPod |
+| `NodeResourcesFit` | Filter | `NodeResourcesFit` — GPU/CPU/内存 |
+| `NodeResourcesBalancedAllocation` | Score | 同名 — 倾向放置后仍有余量的节点 |
+| `NodeResourcesLeastAllocated` | Score | 同名 — 倾向集群内 GPU 空闲更多 |
+| `CacheLocality` | Score | 类似 `ImageLocality` — 模型/数据集已在 CPod 缓存 |
+| `NodeCost` | Score | 平台扩展 — 单价（`sys_price`） |
+
+插件实现：`internal/scheduler/schedule/plugins.go`；框架循环：`framework.go`。
+
+### 3.2 打分合成（与 upstream 一致）
+
+对每个 **Score 插件** \(p\)，在当次所有可行候选上收集原始分 \(s_p(n)\)，再：
+
+\[
+\widehat{s}_p(n) = \begin{cases}
+\text{MaxNodeScore} & \max s_p = \min s_p \land s_p(n) > 0 \\
+0 & \max s_p = \min s_p \land s_p(n) = 0 \\
+\text{MaxNodeScore} \cdot \dfrac{s_p(n)-\min s_p}{\max s_p - \min s_p} & \text{otherwise}
+\end{cases}
+\]
+
+节点总分（整数，便于日志与指标）：
+
+\[
+S(n) = \sum_p w_p \cdot \widehat{s}_p(n)
+\]
+
+其中 \(w_p\) 来自配置 `Scheduling.Weights`（YAML 小数 ×100 转为插件 weight，与 kube `pluginConfig.weight` 同义）。
+
+---
+
+## 四、核心模型
+
+### 4.1 调度单元
 
 - **Workload**：一次待 placement 的工作负载（训练 Job、推理、JupyterLab 等），包含资源需求与可选亲和/缓存需求。
 - **ClusterSnapshot**：单个 CPod 在某时刻的聚合视图（节点列表、缓存集合、健康度、可选单价）。
 - **Candidate**：可行的 `(CpodID, NodeID)` 对。
 
-### 3.2 两阶段流水线
+### 4.2 调度周期（Framework Cycle）
 
 ```mermaid
-flowchart LR
-  subgraph phase1 [Phase 1 硬约束]
-    F1[封禁 / 心跳过期]
-    F2[GPU 型号与数量]
-    F3[CPU / 内存]
-    F4[用户指定 CPod]
-    F5[配额 / 余额 已在提交时校验]
-  end
-  subgraph phase2 [Phase 2 WNS]
-    N[因子 raw 值]
-    NM[集群内 min-max 归一化]
-    W[加权求和]
-    P[选最高分 Candidate]
-  end
-  phase1 --> phase2
+flowchart TB
+  Q[Pending Workload] --> E[Enumerate CPod × Node]
+  E --> PF[PreFilter optional]
+  PF --> FL[Filter plugins chain]
+  FL -->|feasible set| SC[For each Score plugin]
+  SC --> NS[NormalizeScore 0-100]
+  NS --> SUM[Weighted sum]
+  SUM --> PICK[Max score + tie-break]
+  PICK --> BIND[Bind cpod_id on winning poll]
 ```
 
-**硬约束（Filter）**：任一不满足则该 Candidate 不参与打分。
+**Filter**：任一插件返回非 Success → 候选剔除（与 `UnschedulableAndUnresolvable` 语义类似，暂不区分可恢复/不可恢复）。
 
-**软目标（Score）**：在剩余 Candidate 上计算加权归一化总分，取最大者；同分按 `CpodID`、`NodeName` 字典序打破平局（确定性）。
+**Score**：仅对可行集打分；同分按 `CpodID`、`NodeName` 字典序（确定性，等价于 kube 的 tie-break 扩展）。
 
 ---
 
-## 四、打分因子
+## 五、Score 插件语义（配置权重）
 
-所有软因子在**当次调度**的所有可行 Candidate 上做 **min-max 归一化**到 \([0,1]\)。
+| 插件 | Score 原始值 | 默认 YAML 权重 |
+|------|--------------|----------------|
+| `NodeResourcesBalancedAllocation` | 放置后 GPU/CPU 剩余比例 × 100 | 0.35 |
+| `NodeResourcesLeastAllocated` | 集群 GPU allocatable/total × 100 | 0.25 |
+| `CacheLocality` | 缓存命中率 × 100 | 0.25 |
+| `NodeCost` | 单价倒数（仅在有定价的候选间 Normalize） | 0.15 |
 
-| 因子 | 方向 | Raw 定义（示例） | 默认权重 |
-|------|------|------------------|----------|
-| `resource_headroom` | 越大越好 | 放置后节点 GPU 剩余率：\((A - req)/A\) | 0.35 |
-| `load_balance` | 越大越好 | 集群 GPU 空闲率：\(1 - \sum used/\sum total\) | 0.25 |
-| `cache_locality` | 越大越好 | \(\|required \cap cached\| / \|required\|\)，无需求时为 1 | 0.25 |
-| `cost` | 越便宜越好 | 使用 `GpuTypeAndPrice` 单价，归一化时用 \((max-min)\) 反向 | 0.15 |
+新增插件：实现 `FilterPlugin` / `ScorePlugin` 并注册到 `DefaultFramework` 或独立 Scheduling Profile（与 kube 多 Profile 相同思路）。
 
-归一化（越大越好）：
-
-\[
-norm(x) = \begin{cases}
-0.5 & max = min \\
-\frac{x - min}{max - min} & otherwise
-\end{cases}
-\]
-
-越大越好因子直接代入；**越小越好**（如 cost）先令 \(x' = max - x\) 再归一化。
-
-总分：
-
-\[
-S = \frac{\sum_i w_i \cdot norm_i}{\sum_i w_i}
-\]
-
-实现见 `internal/scheduler/schedule/`。
-
-### 4.1 因子扩展（后续）
+### 5.1 因子扩展（后续）
 
 - **网络/地域**：`region`、`latency_ms` 标签。
 - **队列等待**：pending 越久权重微调（公平性）。
@@ -126,7 +152,7 @@ S = \frac{\sum_i w_i \cdot norm_i}{\sum_i w_i}
 
 ---
 
-## 五、与 Pull 模型的结合
+## 六、与 Pull 模型的结合
 
 保持 CPod **主动拉取**不变，改变 Global Scheduler 在 `CpodJob` 内的决策：
 
@@ -139,10 +165,10 @@ sequenceDiagram
   Note over GS: pending job J
   CPodA->>GS: CpodJob(A)
   GS->>GS: 加载全部 fresh 集群快照
-  GS->>GS: WNS → best=(B, node-2)
+  GS->>GS: Framework Schedule → best=(B, node-2)
   GS-->>CPodA: 不包含 J
   CPodB->>GS: CpodJob(B)
-  GS->>GS: WNS → best=(B, node-2)
+  GS->>GS: Framework Schedule → best=(B, node-2)
   GS->>GS: 事务写 cpod_id=B，扣减占位
   GS-->>CPodB: 包含 J
 ```
@@ -158,7 +184,7 @@ sequenceDiagram
 
 ---
 
-## 六、数据依赖
+## 七、数据依赖
 
 | 表 / API | 用途 |
 |----------|------|
@@ -178,7 +204,7 @@ Workload 缓存需求映射示例：
 
 ---
 
-## 七、配置
+## 八、配置
 
 在 `scheduler-api*.yaml` 增加（示例）：
 
@@ -197,33 +223,37 @@ Scheduling:
 
 ---
 
-## 八、可观测性
+## 九、可观测性
 
-- 日志：`placement workload=... winner=cpod/node score=... factors=[{name,raw,norm,weight}]`
+- 日志：`framework score=... plugins=[{name,raw,norm,weight,weighted}]`（字段同 kube 调度日志中的 plugin scores）
 - 指标（建议）：`scheduler_placement_total{result=assigned|skipped|infeasible}`、`scheduler_score_histogram`
 - API（可选）：管理员查询某 job 最近一次打分明细
 
 ---
 
-## 九、落地计划
+## 十、落地计划
 
 | 阶段 | 范围 | 说明 |
 |------|------|------|
-| P0 | 文档 + `schedule` 包 + 单元测试 | 纯函数、无 DB |
-| P1 | `CpodJob` 训练/微调 Job + 配置开关 | 全局 WNS，兼容指定 CPod |
+| P0 | 文档 + `schedule` Framework + 单元测试 | kube 同构 Filter/Score/Normalize |
+| P1 | `CpodJob` 训练/微调 Job + 配置开关 | 全局 Framework，兼容指定 CPod |
 | P2 | Inference、JupyterLab、AppJob 资源校验 + WNS | 统一 `WorkloadKind` |
 | P3 | DB 行锁 + 创建时异步 placement | 消除 poll 竞态 |
 | P4 | 因子扩展、A/B 权重 | 运维调参 |
 
 代码入口：
 
-- 打分引擎：`internal/scheduler/schedule/engine.go`
+- 调度框架：`internal/scheduler/schedule/framework.go`
+- 内置插件：`internal/scheduler/schedule/plugins.go`
+- 便捷入口：`internal/scheduler/schedule/engine.go`（`Score` / `ScoreForCluster`）
 - 集群快照构建：`internal/scheduler/schedule/snapshot.go`
 - 与 `CpodJob` 集成：`internal/scheduler/logic/cpod_job_logic.go`（P1）
 
 ---
 
-## 十、相关文档
+## 十一、相关文档
+
+- [Kubernetes Scheduling Framework](https://kubernetes.io/docs/concepts/scheduling-eviction/scheduling-framework/)（扩展点与 NormalizeScore 语义参考）
 
 - [SYSTEM_ARCHITECTURE.md](./SYSTEM_ARCHITECTURE.md)
 - CPod 资源模型：`cpodoperator/pkg/resource/resource.go`
