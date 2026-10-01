@@ -48,3 +48,12 @@ Billing:
   InitBalance: 100.00
   CronBilling: Yes
   CronBalance: Yes
+
+Scheduling:
+  Enabled: false
+  NodeFreshWindow: 30m
+  Weights:
+    ResourceHeadroom: 0.35
+    LoadBalance: 0.25
+    CacheLocality: 0.25
+    Cost: 0.15
