@@ -142,6 +142,7 @@ cpodoperator/
 
 ## 七、相关文档
 
+- [GLOBAL_SCHEDULER_SCORING.md](./GLOBAL_SCHEDULER_SCORING.md)：多集群全局调度与加权归一化打分（WNS）设计。
 - [CPOD_OPERATOR.md](./CPOD_OPERATOR.md)：CRD 类型说明与使用示例。
 - [NAMESPACEISOLATION.md](./NAMESPACEISOLATION.md)：基于 namespace 的隔离与公开资源拷贝策略。
 - [BILLING.md](./BILLING.md)：计费相关（待完善）。
