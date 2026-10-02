@@ -30,6 +30,7 @@ func Score(workload Workload, clusters []ClusterSnapshot, weights Weights) Place
 func ScoreForCluster(workload Workload, clusters []ClusterSnapshot, weights Weights, requestCpodID string) Placement {
 	p := Score(workload, clusters, weights)
 	if !p.OK || p.Candidate.Cluster.CpodID != requestCpodID {
+		// TODO(YXZ-15): Callers need global winner + breakdown for skipped_not_winner observability (YXZ-15).
 		return Placement{OK: false, TotalScore: p.TotalScore}
 	}
 	return p

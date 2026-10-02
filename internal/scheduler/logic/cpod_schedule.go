@@ -20,6 +20,8 @@ func (l *CpodJobLogic) tryScheduleOnCpod(
 	cpodID string,
 	wl schedule.Workload,
 ) (*model.SysCpodNode, schedule.Placement, bool) {
+	// TODO(YXZ-15): Classify infeasible vs skipped_not_winner via schedule.Score(); log global winner + breakdown.
+	// https://linear.app/yxzhao/issue/YXZ-15/scheduler-prometheus-placement-metrics-and-unified-wns-observability
 	p := schedule.ScoreForCluster(wl, clusters, weights, cpodID)
 	if !p.OK {
 		return nil, p, false
@@ -39,6 +41,8 @@ func (l *CpodJobLogic) scheduleWithClaim(
 	wl schedule.Workload,
 	claim func() (bool, error),
 ) (*model.SysCpodNode, schedule.Placement, error) {
+	// TODO(YXZ-15): recordSchedulingObs(workload, id, cpodID, p, node, result) for logs + metrics/scheduling.go.
+	// https://linear.app/yxzhao/issue/YXZ-15/scheduler-prometheus-placement-metrics-and-unified-wns-observability
 	node, p, ok := l.tryScheduleOnCpod(clusters, live, weights, cpodID, wl)
 	if !ok {
 		return nil, p, nil

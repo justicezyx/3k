@@ -241,8 +241,8 @@ Scheduling:
 
 ## 九、可观测性与测试
 
-- 日志：`schedule score=... breakdown=[{name,raw,norm,weight,weighted}]`
-- 指标（建议）：`scheduler_placement_total{result=assigned|skipped|infeasible}`、`scheduler_score_histogram`
+- 日志：`schedule score=... breakdown=[{name,raw,norm,weight,weighted}]`（当前仅训练 Job 完整输出；统一 observability 见 **YXZ-15**）
+- 指标（建议）：`scheduler_placement_total{workload,result}`、`scheduler_placement_score{workload}`（未实现；见 [YXZ-15](https://linear.app/yxzhao/issue/YXZ-15/scheduler-prometheus-placement-metrics-and-unified-wns-observability)、[docs/issues/YXZ-15-scheduler-placement-observability.md](./issues/YXZ-15-scheduler-placement-observability.md)）
 - 单元测试：`internal/scheduler/schedule/*_test.go`
 - 探索性压测：`explore_stress_test.go`（`go test -run Explore`；`-short` 跳过）— 统计 tie-break 偏置、归一化坍缩、pull 模型饿死、贪心序贯 vs 小规模最优装箱等退化行为，结果仅 `t.Log` 不强制 CI 失败
 

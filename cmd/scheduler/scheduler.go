@@ -95,6 +95,8 @@ func main() {
 	// error handler
 	handler.InitErrorHandler()
 
+	// TODO(YXZ-15): Enable Prometheus in RestConf / scheduler-api*.yaml; scrape scheduler_placement_* (YXZ-15).
+	// https://linear.app/yxzhao/issue/YXZ-15/scheduler-prometheus-placement-metrics-and-unified-wns-observability
 	server := rest.MustNewServer(c.RestConf)
 	defer server.Stop()
 

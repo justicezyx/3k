@@ -57,6 +57,8 @@ func (l *CpodJobLogic) CpodJob(req *types.CpodJobReq) (resp *types.CpodJobResp, 
 
 	freshWindow := schedule.ParseFreshWindow(l.svcCtx.Config.Scheduling.NodeFreshWindow, 30*time.Minute)
 	schedEnabled := l.svcCtx.Config.Scheduling.Enabled
+	// TODO(YXZ-15): Pass workload kind/id into scheduleWithClaim; centralize WNS logs/metrics (YXZ-15).
+	// https://linear.app/yxzhao/issue/YXZ-15/scheduler-prometheus-placement-metrics-and-unified-wns-observability
 	schedWeights := schedule.WeightsFromConfig(
 		l.svcCtx.Config.Scheduling.Weights.ResourceHeadroom,
 		l.svcCtx.Config.Scheduling.Weights.LoadBalance,
@@ -141,6 +143,7 @@ func (l *CpodJobLogic) CpodJob(req *types.CpodJobReq) (resp *types.CpodJobResp, 
 					assignedJobs = append(assignedJobs, job)
 					assignedNodes[node] = true
 					placed = true
+					// TODO(YXZ-15): Remove once recordSchedulingObs logs breakdown for all workloads (YXZ-15).
 					l.Logger.Infof("user_job schedule score=%d cpod_id=%s node=%s job_id=%d breakdown=%+v",
 						placement.TotalScore, req.CpodId, node.NodeName, job.JobId, placement.Breakdown)
 				}
@@ -235,6 +238,7 @@ func (l *CpodJobLogic) CpodJob(req *types.CpodJobReq) (resp *types.CpodJobResp, 
 			if schedEnabled {
 				wl := workloadFromInference(service)
 				sid := service.Id
+				// TODO(YXZ-15): WNS breakdown/metrics via scheduleWithClaim (YXZ-15).
 				node, _, err := l.scheduleWithClaim(clusterSnapshots, nodeByID, schedWeights, req.CpodId, wl, func() (bool, error) {
 					return l.claimInference(sid, req.CpodId)
 				})
@@ -319,6 +323,7 @@ func (l *CpodJobLogic) CpodJob(req *types.CpodJobReq) (resp *types.CpodJobResp, 
 			if schedEnabled {
 				wl := workloadFromJupyterlab(jupyterlab, jupyterlabResp.Resource)
 				jid := jupyterlab.Id
+				// TODO(YXZ-15): WNS breakdown/metrics via scheduleWithClaim (YXZ-15).
 				node, _, err := l.scheduleWithClaim(clusterSnapshots, nodeByID, schedWeights, req.CpodId, wl, func() (bool, error) {
 					return l.claimJupyterlab(jid, req.CpodId)
 				})
@@ -414,6 +419,7 @@ func (l *CpodJobLogic) CpodJob(req *types.CpodJobReq) (resp *types.CpodJobResp, 
 				// https://linear.app/yxzhao/issue/YXZ-14/appjob-resource-model-for-global-scheduler-placement
 				wl := workloadFromAppJob()
 				aid := appJob.Id
+				// TODO(YXZ-15): WNS breakdown/metrics via scheduleWithClaim (YXZ-15).
 				node, _, err := l.scheduleWithClaim(clusterSnapshots, nodeByID, schedWeights, req.CpodId, wl, func() (bool, error) {
 					return l.claimAppJob(aid, req.CpodId)
 				})
