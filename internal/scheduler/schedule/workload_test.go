@@ -23,3 +23,10 @@ func TestInferenceCacheIDs_adapterOnly(t *testing.T) {
 		t.Fatalf("expected model+adapter ids, got %v", ids)
 	}
 }
+
+func TestUniqueCacheIDs(t *testing.T) {
+	got := UniqueCacheIDs([]string{"a", "b", "a", ""})
+	if len(got) != 2 || got[0] != "a" || got[1] != "b" {
+		t.Fatalf("got %v", got)
+	}
+}

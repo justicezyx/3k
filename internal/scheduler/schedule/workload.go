@@ -5,7 +5,6 @@ import (
 	"sxwl/3k/pkg/storage"
 )
 
-// Default inference footprint (matches legacy cpod_job_logic).
 const (
 	InferenceCPUCores int64 = 4
 )
@@ -14,14 +13,12 @@ func InferenceMemBytes() int64 {
 	return storage.GBToBytes(50)
 }
 
-// TrainingCacheIDs maps finetune/train job model/dataset names to sys_cpod_cache data_id keys.
 func TrainingCacheIDs(modelName, datasetName string) []string {
-	return resourceCacheIDs(modelName, datasetName, "")
+	return UniqueCacheIDs(resourceCacheIDs(modelName, datasetName, ""))
 }
 
-// InferenceCacheIDs maps inference model and optional adapter to cache data_id keys.
 func InferenceCacheIDs(modelName, adapterName string) []string {
-	return resourceCacheIDs(modelName, "", adapterName)
+	return UniqueCacheIDs(resourceCacheIDs(modelName, "", adapterName))
 }
 
 func resourceCacheIDs(modelName, datasetName, adapterName string) []string {
@@ -36,4 +33,24 @@ func resourceCacheIDs(modelName, datasetName, adapterName string) []string {
 		ids = append(ids, storage.AdapterCRDName(storage.ResourceToOSSPath(consts.Adapter, adapterName)))
 	}
 	return ids
+}
+
+// UniqueCacheIDs deduplicates while preserving order.
+func UniqueCacheIDs(ids []string) []string {
+	if len(ids) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(ids))
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	return out
 }

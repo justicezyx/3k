@@ -253,15 +253,14 @@ Scheduling:
 | P1 | `CpodJob` 训练/微调 Job + 配置开关 | 已完成 |
 | P2 | Inference、JupyterLab、AppJob + 缓存 ID | 已完成（`workload.go` / `cpod_schedule.go`） |
 | P3 | 乐观 claim + placement 回滚 | 已完成 |
-| P4 | 创建时异步 placement | 可选增强 |
-| P4 | 因子扩展、A/B 权重 | 运维调参 |
+| P4 | 创建时异步 placement、因子 A/B 调参 | 可选增强 |
 
 代码入口：
 
-- 调度核心：`internal/scheduler/schedule/scheduler.go`
-- 对外 API：`internal/scheduler/schedule/engine.go`（`Score` / `ScoreForCluster`）
-- 集群快照构建：`internal/scheduler/schedule/snapshot.go`
-- 与 `CpodJob` 集成：`internal/scheduler/logic/cpod_job_logic.go`（P1）
+- 调度核心：`internal/scheduler/schedule/scheduler.go`（`Score` / `ScoreForCluster`）
+- 集群快照与 placement：`internal/scheduler/schedule/snapshot.go`
+- Workload / 缓存 ID：`internal/scheduler/schedule/workload.go`
+- Claim 与集成：`internal/scheduler/logic/cpod_schedule.go`、`cpod_job_logic.go`
 
 ---
 

@@ -57,7 +57,11 @@ func (l *CpodJobLogic) scheduleWithClaim(
 
 func (l *CpodJobLogic) claimUserJob(jobID int64, cpodID string) (bool, error) {
 	result, err := l.svcCtx.UserJobModel.UpdateColsByCond(l.ctx, l.svcCtx.UserJobModel.UpdateBuilder().Where(squirrel.And{
-		squirrel.Eq{"job_id": jobID},
+		squirrel.Eq{
+			"job_id":         jobID,
+			"obtain_status":  model.StatusObtainNeedSend,
+			"deleted":        0,
+		},
 		squirrel.Expr(emptyCpodExpr),
 	}).SetMap(map[string]interface{}{
 		"cpod_id":     cpodID,
@@ -168,6 +172,7 @@ func workloadFromJupyterlab(j *model.SysJupyterlab, resource types.JupyterResour
 	for _, a := range resource.Adapters {
 		wl.CacheIDs = append(wl.CacheIDs, schedule.InferenceCacheIDs("", a.AdapterName)...)
 	}
+	wl.CacheIDs = schedule.UniqueCacheIDs(wl.CacheIDs)
 	return wl
 }
 

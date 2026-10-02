@@ -126,7 +126,7 @@ func (l *CpodJobLogic) CpodJob(req *types.CpodJobReq) (resp *types.CpodJobResp, 
 	assignedNodes := make(map[*model.SysCpodNode]bool) // 本次被分配任务的node
 
 	for _, job := range jobs {
-		if job.CpodId.String == "" {
+		if !job.CpodId.Valid || job.CpodId.String == "" {
 			placed := false
 			if schedEnabled {
 				wl := workloadFromUserJob(job)
@@ -174,10 +174,8 @@ func (l *CpodJobLogic) CpodJob(req *types.CpodJobReq) (resp *types.CpodJobResp, 
 			if placed {
 				continue
 			}
-		} else {
-			if job.CpodId.String == req.CpodId {
-				activeJobs = append(activeJobs, job)
-			}
+		} else if job.CpodId.Valid && job.CpodId.String == req.CpodId {
+			activeJobs = append(activeJobs, job)
 		}
 	}
 
@@ -275,6 +273,7 @@ func (l *CpodJobLogic) CpodJob(req *types.CpodJobReq) (resp *types.CpodJobResp, 
 				}
 			}
 			if assigned {
+				serviceResp.CpodId = req.CpodId
 				l.Infof("inference assigned inferId=%d cpod_id=%s", service.Id, req.CpodId)
 				resp.InferenceServiceList = append(resp.InferenceServiceList, serviceResp)
 			}
@@ -317,10 +316,8 @@ func (l *CpodJobLogic) CpodJob(req *types.CpodJobReq) (resp *types.CpodJobResp, 
 		switch jupyterlab.Status {
 		case model.StatusNotAssigned:
 			assigned := false
-			var jResource types.JupyterResource
-			_ = json.Unmarshal([]byte(jupyterlab.Resource), &jResource)
 			if schedEnabled {
-				wl := workloadFromJupyterlab(jupyterlab, jResource)
+				wl := workloadFromJupyterlab(jupyterlab, jupyterlabResp.Resource)
 				jid := jupyterlab.Id
 				node, _, err := l.scheduleWithClaim(clusterSnapshots, nodeByID, schedWeights, req.CpodId, wl, func() (bool, error) {
 					return l.claimJupyterlab(jid, req.CpodId)
