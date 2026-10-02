@@ -143,7 +143,8 @@ flowchart TB
 
 - `Scheduling.Enabled=true` 时：一次加载全部 fresh 节点，构建 `clusterSnapshots`；本 CPod 的 `nodes` 与 `nodeByID` **共享同一指针**，训练任务分配后推理/Jupyter 能看到扣减后的容量。
 - `CommitPlacement` 同时更新 snapshot（后续 Score）与 live node（DB 落库）。
-- 同一请求内多个 pending 训练任务按 DB 返回顺序依次 Score；无跨请求行锁，并发 poll 仍可能双分配（见 P3）。
+- 同一请求内多个 pending 任务按 DB 顺序依次 Score；跨 CPod 并发 poll 通过 **乐观 claim**（`UPDATE … WHERE cpod_id IS NULL/''`）避免双分配，失败则 `RevertPlacement`。
+- 训练 / 推理 / JupyterLab / AppJob 在 `Scheduling.Enabled` 时均走全局 Score；legacy 路径也使用 claim。
 
 ### 5.2 已知算法局限（探索性测试 `explore_stress_test.go`）
 
@@ -249,9 +250,10 @@ Scheduling:
 | 阶段 | 范围 | 说明 |
 |------|------|------|
 | P0 | 文档 + `schedule` 包 + 单元测试 | 内聚 Filter/Score/Normalize |
-| P1 | `CpodJob` 训练/微调 Job + 配置开关 | 全局打分，兼容指定 CPod |
-| P2 | Inference、JupyterLab、AppJob 资源校验 + WNS | 统一 `WorkloadKind` |
-| P3 | DB 行锁 + 创建时异步 placement | 消除 poll 竞态 |
+| P1 | `CpodJob` 训练/微调 Job + 配置开关 | 已完成 |
+| P2 | Inference、JupyterLab、AppJob + 缓存 ID | 已完成（`workload.go` / `cpod_schedule.go`） |
+| P3 | 乐观 claim + placement 回滚 | 已完成 |
+| P4 | 创建时异步 placement | 可选增强 |
 | P4 | 因子扩展、A/B 权重 | 运维调参 |
 
 代码入口：

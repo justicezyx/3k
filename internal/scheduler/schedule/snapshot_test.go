@@ -85,6 +85,22 @@ func TestCommitPlacement_updatesSnapshotAndLiveNode(t *testing.T) {
 	}
 }
 
+func TestRevertPlacement_restoresCapacity(t *testing.T) {
+	live := map[int64]*model.SysCpodNode{
+		7: {Id: 7, GpuAllocatable: 5, CpuAllocatable: 10, MemAllocatable: 900},
+	}
+	clusters := []ClusterSnapshot{{
+		CpodID: "c1",
+		Nodes:  []NodeSnapshot{{ID: 7, GPUAllocatable: 5, CPUAllocatable: 10, MemAllocatable: 900}},
+	}}
+	p := Placement{OK: true, Candidate: Candidate{Cluster: clusters[0], Node: clusters[0].Nodes[0]}}
+	w := Workload{GPUCount: 2, CPUCores: 1, MemBytes: 100}
+	RevertPlacement(clusters, live, p, w)
+	if live[7].GpuAllocatable != 7 || clusters[0].Nodes[0].GPUAllocatable != 7 {
+		t.Fatal("revert failed")
+	}
+}
+
 func TestBuildClusterSnapshots_sortedByCpodID(t *testing.T) {
 	nodes := []*model.SysCpodNode{
 		{Id: 1, CpodId: "z", NodeName: "n", GpuProd: "G", GpuAllocatable: 1, GpuTotal: 1, CpuAllocatable: 1, MemAllocatable: 1},

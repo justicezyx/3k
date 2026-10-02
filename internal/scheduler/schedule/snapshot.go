@@ -92,13 +92,50 @@ func CommitPlacement(
 		return nil
 	}
 	ApplyPlacement(clusters, p, w)
+	return applyLiveNode(live, p, w, -1)
+}
+
+// RevertPlacement undoes CommitPlacement when a DB claim loses a race.
+func RevertPlacement(
+	clusters []ClusterSnapshot,
+	live map[int64]*model.SysCpodNode,
+	p Placement,
+	w Workload,
+) {
+	if !p.OK {
+		return
+	}
+	for i := range clusters {
+		if clusters[i].CpodID != p.Candidate.Cluster.CpodID {
+			continue
+		}
+		for j := range clusters[i].Nodes {
+			if clusters[i].Nodes[j].ID != p.Candidate.Node.ID {
+				continue
+			}
+			clusters[i].Nodes[j].GPUAllocatable += w.GPUCount
+			clusters[i].Nodes[j].CPUAllocatable += w.CPUCores
+			clusters[i].Nodes[j].MemAllocatable += w.MemBytes
+			break
+		}
+	}
+	applyLiveNode(live, p, w, 1)
+}
+
+func applyLiveNode(live map[int64]*model.SysCpodNode, p Placement, w Workload, sign int64) *model.SysCpodNode {
 	node, ok := live[p.Candidate.Node.ID]
 	if !ok {
 		return nil
 	}
-	node.GpuAllocatable -= w.GPUCount
-	node.CpuAllocatable -= w.CPUCores
-	node.MemAllocatable -= w.MemBytes
+	if sign < 0 {
+		node.GpuAllocatable -= w.GPUCount
+		node.CpuAllocatable -= w.CPUCores
+		node.MemAllocatable -= w.MemBytes
+	} else {
+		node.GpuAllocatable += w.GPUCount
+		node.CpuAllocatable += w.CPUCores
+		node.MemAllocatable += w.MemBytes
+	}
 	return node
 }
 
