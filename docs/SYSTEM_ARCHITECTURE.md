@@ -40,6 +40,31 @@
 | **CPodObserver** | 采集集群内训练任务、FineTune、推理服务、JupyterLab、YAML 应用状态，组装为心跳 payload 写入 channel。                                                             |
 | **Playground**   | 与 LiteLLM 等 Playground 服务对接（如注册模型、同步推理地址等）。                                                                                                |
 
+### 2.3 Heartbeat 与 CPod 节点资源（`sys_cpod_node`）
+
+**CPod 节点**在 Portal 侧指：某个 CPod（`cpod_id`）集群内的一台 **Kubernetes worker 节点**，在 MySQL 表 `sys_cpod_node` 中一行对应 `(cpod_id, node_name)`，保存 GPU/CPU/内存总量与可分配量及 `updated_at`。
+
+**上报路径（非 K8s API Server，而是算想云 Portal Scheduler HTTP API）：**
+
+1. **CPodObserver**（`cpodoperator/internal/synchronizer/cpodobserver.go`）按 synchronizer 周期运行：采集训练 / FineTune / 推理 / JupyterLab / YAML 应用状态，并调用 `getResourceInfo()`。
+2. **`getResourceInfo()`**：
+   - `List` 集群内**全部** `corev1.Node`；
+   - 再 `List` 全部 Pod，按 `pod.spec.nodeName` 累加容器 **requests**（`nvidia.com/gpu`、CPU、Memory）得到各节点 `GPUUsed` / `CPUUsed` / `MemUsed`；
+   - 计算 `GPUAllocatable = GPUTotal - GPUUsed`（GPU 总量来自节点 NVIDIA 相关 label）；
+   - 汇总 `GPUSummaries`；列出本集群 ModelStorage / DataSetStorage 作为 **`Caches`**。
+3. 组装 **`HeartBeatPayload`**（`resource_info` + 各类 job status + `cpod_id` + `update_time`），写入 channel。
+4. **Uploader** 调用 `sxwl.Scheduler.HeartBeat()` → **`POST {Portal}/api/cpod/status`**（`URLPATH_UPLOAD_CPOD_STATUS`）。
+5. Global Scheduler **`CpodStatus`**（`internal/scheduler/logic/cpod_status_logic.go`）按节点 **upsert** `sys_cpod_node`，并更新缓存、任务状态等。
+
+**与调度的关系：** 全局打分读「fresh」节点（如 `updated_at` 在 `NodeFreshWindow` 内）；`CpodJob` 分配时还可能短期扣减 Portal 侧 `*_allocatable`，下一跳心跳会再次以 K8s 推导值覆盖（见 [GLOBAL_SCHEDULER_SCORING.md](./GLOBAL_SCHEDULER_SCORING.md) 双账本说明）。
+
+**注意：**
+
+- 心跳里的节点能力是 **K8s 节点 + Pod request 推导**，不是逐卡 NVML 遥测（`GPUState` 数组在此路径多为占位）。
+- **`POST /api/resource/meta`**（`UploadResource`）是资源元数据上报，与周期性节点心跳是**不同接口**。
+
+**代码索引：** `cpodoperator/pkg/resource/resource.go`（`CPodResourceInfo` / `NodeInfo`）；`cpodoperator/pkg/provider/sxwl/sxwl.go`（`HeartBeat`）。
+
 ---
 
 ## 三、CRD 与控制器
