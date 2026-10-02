@@ -178,6 +178,8 @@ func (l *CpodJobLogic) CpodJob(req *types.CpodJobReq) (resp *types.CpodJobResp, 
 				continue
 			}
 		} else if job.CpodId.Valid && job.CpodId.String == req.CpodId {
+			// TODO(YXZ-16): Jobs with cpod_id set skip global cluster Score; consider node-level WNS with PinCluster (YXZ-16 option B).
+			// https://linear.app/yxzhao/issue/YXZ-16/global-scheduler-wire-workloadpincluster-cpod-affinity
 			activeJobs = append(activeJobs, job)
 		}
 	}

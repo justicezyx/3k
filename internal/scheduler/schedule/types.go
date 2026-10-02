@@ -9,6 +9,8 @@ type Workload struct {
 	CPUCores   int64
 	MemBytes   int64
 
+	// TODO(YXZ-16): Set from DB/API CPod affinity in workloadFrom* (see cpod_schedule.go).
+	// https://linear.app/yxzhao/issue/YXZ-16/global-scheduler-wire-workloadpincluster-cpod-affinity
 	PinCluster string
 	CacheIDs   []string
 }

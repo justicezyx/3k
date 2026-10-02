@@ -131,6 +131,8 @@ func rowsAffectedOne(result sql.Result) (bool, error) {
 }
 
 func workloadFromUserJob(job *model.SysUserJob) schedule.Workload {
+	// TODO(YXZ-16): Set PinCluster when job carries CPod affinity (e.g. sql.NullString cpod_id or future preferred_cpod).
+	// https://linear.app/yxzhao/issue/YXZ-16/global-scheduler-wire-workloadpincluster-cpod-affinity
 	return schedule.Workload{
 		GPUProduct: job.GpuType.String,
 		GPUCount:   job.GpuNumber.Int64,
@@ -140,6 +142,8 @@ func workloadFromUserJob(job *model.SysUserJob) schedule.Workload {
 }
 
 func workloadFromInference(service *model.SysInference) schedule.Workload {
+	// TODO(YXZ-16): Set PinCluster from inference cpod_id / deploy API when scoring should respect CPod affinity.
+	// https://linear.app/yxzhao/issue/YXZ-16/global-scheduler-wire-workloadpincluster-cpod-affinity
 	return schedule.Workload{
 		GPUProduct: service.GpuType.String,
 		GPUCount:   service.GpuNumber.Int64,
@@ -159,6 +163,8 @@ func adapterNameFromInference(service *model.SysInference) string {
 }
 
 func workloadFromJupyterlab(j *model.SysJupyterlab, resource types.JupyterResource) schedule.Workload {
+	// TODO(YXZ-16): Set PinCluster from jupyterlab cpod_id when present and affinity should apply during Score().
+	// https://linear.app/yxzhao/issue/YXZ-16/global-scheduler-wire-workloadpincluster-cpod-affinity
 	wl := schedule.Workload{
 		CPUCores: j.CpuCount,
 		MemBytes: j.MemCount,
@@ -183,5 +189,7 @@ func workloadFromJupyterlab(j *model.SysJupyterlab, resource types.JupyterResour
 // TODO(YXZ-14): Derive CPU/mem/GPU and CacheIDs from SysApp.Crd and/or AppJob Meta.
 // https://linear.app/yxzhao/issue/YXZ-14/appjob-resource-model-for-global-scheduler-placement
 func workloadFromAppJob() schedule.Workload {
+	// TODO(YXZ-16): Set PinCluster when AppJob / Meta carries CPod affinity.
+	// https://linear.app/yxzhao/issue/YXZ-16/global-scheduler-wire-workloadpincluster-cpod-affinity
 	return schedule.Workload{CPUCores: 1}
 }

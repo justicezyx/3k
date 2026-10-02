@@ -6,3 +6,4 @@ GitHub Issues are disabled on `justicezyx/3k`. Linear is the primary tracker; ma
 |----|-------|--------|--------|
 | YXZ-14 | AppJob resource model for global scheduler | [YXZ-14](https://linear.app/yxzhao/issue/YXZ-14/appjob-resource-model-for-global-scheduler-placement) | [YXZ-14-appjob-scheduler-resources.md](./YXZ-14-appjob-scheduler-resources.md) |
 | YXZ-15 | Scheduler placement metrics and WNS observability | [YXZ-15](https://linear.app/yxzhao/issue/YXZ-15/scheduler-prometheus-placement-metrics-and-unified-wns-observability) | [YXZ-15-scheduler-placement-observability.md](./YXZ-15-scheduler-placement-observability.md) |
+| YXZ-16 | Wire Workload.PinCluster (CPod affinity) | [YXZ-16](https://linear.app/yxzhao/issue/YXZ-16/global-scheduler-wire-workloadpincluster-cpod-affinity) | [YXZ-16-pincluster-cpod-affinity.md](./YXZ-16-pincluster-cpod-affinity.md) |

@@ -128,6 +128,8 @@ func scaleWeight(v float64) int64 {
 }
 
 func feasibleCandidate(workload Workload, candidate Candidate) bool {
+	// TODO(YXZ-16): PinCluster is only set in tests today; production workloads never populate it.
+	// https://linear.app/yxzhao/issue/YXZ-16/global-scheduler-wire-workloadpincluster-cpod-affinity
 	if workload.PinCluster != "" && candidate.Cluster.CpodID != workload.PinCluster {
 		return false
 	}
