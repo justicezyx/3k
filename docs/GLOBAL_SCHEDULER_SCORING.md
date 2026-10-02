@@ -34,7 +34,7 @@ sequenceDiagram
 
 1. **非全局最优**：`cpod_id` 为空的任务会被**第一个**来 poll 且本地能放下的 CPod 拿走，与集群负载、数据局部性无关。
 2. **顺序敏感**：DB 返回节点/任务顺序影响结果，不可复现。
-3. **AppJob 无资源校验**：YAML 应用任务对任意 poll 的 CPod 直接绑定。
+3. **AppJob 无资源校验**：YAML 应用任务对任意 poll 的 CPod 直接绑定（`Scheduling.Enabled` 时仍用占位 `Workload{CPUCores:1}`，见 [YXZ-14](https://linear.app/yxzhao/issue/YXZ-14/appjob-resource-model-for-global-scheduler-placement)）。
 4. **双账本风险**：Portal 在 `cpod_job` 中扣减 `gpu_allocatable`，心跳在 `cpod_status` 全量覆盖 K8s 真实值；打分应主要依据**心跳快照**，Portal 扣减仅作并发占位（短期）。
 
 ---
@@ -199,6 +199,8 @@ sequenceDiagram
 
 ## 七、数据依赖
 
+CPod 侧如何采集并上报节点与缓存：见 [SYSTEM_ARCHITECTURE.md](./SYSTEM_ARCHITECTURE.md) **§2.3 Heartbeat 与 CPod 节点资源**（`CPodObserver` → `POST /api/cpod/status` → upsert `sys_cpod_node`）。
+
 | 表 / API | 用途 |
 |----------|------|
 | `sys_cpod_node` | 节点 allocatable、GPU 型号、心跳时间 |
@@ -214,6 +216,7 @@ Workload 缓存需求映射示例：
 | Finetune / CPodJob | `pretrained_model_name`、`dataset_name` 转 CRD/OSS id |
 | Inference | metadata 中 model / adapter |
 | JupyterLab | `Resource` JSON 内模型/数据集 |
+| AppJob | **未实现** — 占位 1 CPU；需从 `SysApp.Crd` / `Meta` 解析（[YXZ-14](https://linear.app/yxzhao/issue/YXZ-14/appjob-resource-model-for-global-scheduler-placement)） |
 
 ---
 

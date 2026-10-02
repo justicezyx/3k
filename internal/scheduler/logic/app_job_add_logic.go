@@ -67,6 +67,8 @@ func (l *AppJobAddLogic) AppJobAdd(req *types.AppJobAddReq) (resp *types.BaseRes
 		return nil, ErrSystem
 	}
 
+	// TODO(YXZ-14): Optionally persist schedulable resources (or parse from App.Crd at placement time).
+	// https://linear.app/yxzhao/issue/YXZ-14/appjob-resource-model-for-global-scheduler-placement
 	_, err = AppJobModel.Insert(l.ctx, &model.SysAppJob{
 		JobName:       jobName,
 		UserId:        req.UserID,

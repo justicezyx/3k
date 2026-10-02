@@ -176,6 +176,8 @@ func workloadFromJupyterlab(j *model.SysJupyterlab, resource types.JupyterResour
 	return wl
 }
 
+// TODO(YXZ-14): Derive CPU/mem/GPU and CacheIDs from SysApp.Crd and/or AppJob Meta.
+// https://linear.app/yxzhao/issue/YXZ-14/appjob-resource-model-for-global-scheduler-placement
 func workloadFromAppJob() schedule.Workload {
 	return schedule.Workload{CPUCores: 1}
 }

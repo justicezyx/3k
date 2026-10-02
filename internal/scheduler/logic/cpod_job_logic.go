@@ -410,6 +410,8 @@ func (l *CpodJobLogic) CpodJob(req *types.CpodJobReq) (resp *types.CpodJobResp, 
 		case model.StatusNotAssigned:
 			assigned := false
 			if schedEnabled {
+				// TODO(YXZ-14): Pass appJob + app into workload builder; scoring uses placeholder 1 CPU today.
+				// https://linear.app/yxzhao/issue/YXZ-14/appjob-resource-model-for-global-scheduler-placement
 				wl := workloadFromAppJob()
 				aid := appJob.Id
 				node, _, err := l.scheduleWithClaim(clusterSnapshots, nodeByID, schedWeights, req.CpodId, wl, func() (bool, error) {
@@ -424,6 +426,8 @@ func (l *CpodJobLogic) CpodJob(req *types.CpodJobReq) (resp *types.CpodJobResp, 
 					assigned = true
 				}
 			} else {
+				// TODO(YXZ-14): Legacy path claims without node capacity check; align with real AppJob resources.
+				// https://linear.app/yxzhao/issue/YXZ-14/appjob-resource-model-for-global-scheduler-placement
 				claimed, err := l.claimAppJob(appJob.Id, req.CpodId)
 				if err != nil {
 					l.Errorf("appJob assigned job_name=%s cpod_id=%s err=%s", appJob.JobName, req.CpodId, err)
