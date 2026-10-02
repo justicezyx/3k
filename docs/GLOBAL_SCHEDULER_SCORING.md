@@ -137,7 +137,25 @@ flowchart TB
 
 新增维度时直接修改 `scheduler.go` 中的 `scoreDimensions()` 与对应函数（无注册表/接口）。
 
-### 5.1 后续可增维度（改代码，非插件）
+配置说明：`WeightsFromConfig` 在四个权重**全为 0** 时使用默认值；任一非 0 则按 YAML 原样使用，**单个 0 表示关闭该维度**。
+
+### 5.1 集成注意（`CpodJob`）
+
+- `Scheduling.Enabled=true` 时：一次加载全部 fresh 节点，构建 `clusterSnapshots`；本 CPod 的 `nodes` 与 `nodeByID` **共享同一指针**，训练任务分配后推理/Jupyter 能看到扣减后的容量。
+- `CommitPlacement` 同时更新 snapshot（后续 Score）与 live node（DB 落库）。
+- 同一请求内多个 pending 训练任务按 DB 返回顺序依次 Score；无跨请求行锁，并发 poll 仍可能双分配（见 P3）。
+
+### 5.2 已知算法局限（探索性测试 `explore_stress_test.go`）
+
+| 现象 | 原因 |
+|------|------|
+| Pull 饿死 | 仅 global 最高分 CPod 在 poll 时绑定 |
+| load_balance 偏置 | 空闲集群得分更高，难以回填热集群 |
+| 归一化坍缩 | 某维度 raw 全相同 → 该维度不区分候选 |
+| 序贯贪心 | 单 job Score 最优 ≠ 多 job 装箱最优 |
+| 同分 | `cpod_id` / `node_name` 字典序 |
+
+### 5.3 后续可增维度（改代码，非插件）
 
 - **网络/地域**：`region`、`latency_ms` 标签。
 - **队列等待**：pending 越久权重微调（公平性）。
@@ -159,10 +177,10 @@ sequenceDiagram
   Note over GS: pending job J
   CPodA->>GS: CpodJob(A)
   GS->>GS: 加载全部 fresh 集群快照
-  GS->>GS: Framework Schedule → best=(B, node-2)
+  GS->>GS: Score → best=(B, node-2)
   GS-->>CPodA: 不包含 J
   CPodB->>GS: CpodJob(B)
-  GS->>GS: Framework Schedule → best=(B, node-2)
+  GS->>GS: Score → best=(B, node-2)
   GS->>GS: 事务写 cpod_id=B，扣减占位
   GS-->>CPodB: 包含 J
 ```

@@ -208,6 +208,26 @@ func TestScore_cacheLocalityAllOrNothing(t *testing.T) {
 	}
 }
 
+func TestScore_sequentialJobsUseUpdatedSnapshot(t *testing.T) {
+	clusters := []ClusterSnapshot{{
+		CpodID: "c1",
+		Nodes:  []NodeSnapshot{{ID: 1, NodeName: "n1", GPUProduct: "G", GPUAllocatable: 4, GPUTotal: 4, CPUAllocatable: 4}},
+	}}
+	w := Workload{GPUProduct: "G", GPUCount: 1, CPUCores: 1}
+	p1 := Score(w, clusters, Weights{ResourceHeadroom: 1})
+	if !p1.OK {
+		t.Fatal("first placement")
+	}
+	ApplyPlacement(clusters, p1, w)
+	if clusters[0].Nodes[0].GPUAllocatable != 3 {
+		t.Fatalf("snapshot not updated: %d", clusters[0].Nodes[0].GPUAllocatable)
+	}
+	p2 := Score(w, clusters, Weights{ResourceHeadroom: 1})
+	if !p2.OK || p2.Candidate.Node.ID != 1 {
+		t.Fatal("second placement should still fit on depleted node")
+	}
+}
+
 func TestScore_deterministicRepeatedCalls(t *testing.T) {
 	clusters := testClusterGrid(3, 2)
 	w := Workload{GPUProduct: "G", GPUCount: 1, CPUCores: 1, CacheIDs: []string{"m1"}}

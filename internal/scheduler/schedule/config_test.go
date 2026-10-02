@@ -5,18 +5,22 @@ import (
 	"time"
 )
 
-func TestWeightsFromConfig_partialOverride(t *testing.T) {
-	w := WeightsFromConfig(0.5, 0, 0, 0)
-	if w.ResourceHeadroom != 0.5 {
-		t.Fatalf("headroom=%f", w.ResourceHeadroom)
-	}
-	if w.LoadBalance != DefaultWeights().LoadBalance {
-		t.Fatal("expected default load balance when zero in config")
+func TestWeightsFromConfig_allZeroUsesDefaults(t *testing.T) {
+	w := WeightsFromConfig(0, 0, 0, 0)
+	if w != DefaultWeights() {
+		t.Fatalf("got %+v want %+v", w, DefaultWeights())
 	}
 }
 
-func TestWeightsFromConfig_allZeroUsesDefaults(t *testing.T) {
-	w := WeightsFromConfig(0, 0, 0, 0)
+func TestWeightsFromConfig_explicitZerosDisableDimensions(t *testing.T) {
+	w := WeightsFromConfig(1, 0, 0, 0)
+	if w.ResourceHeadroom != 1 || w.LoadBalance != 0 {
+		t.Fatalf("got %+v", w)
+	}
+}
+
+func TestWeightsFromConfig_yamlValues(t *testing.T) {
+	w := WeightsFromConfig(0.35, 0.25, 0.25, 0.15)
 	d := DefaultWeights()
 	if w != d {
 		t.Fatalf("got %+v want %+v", w, d)

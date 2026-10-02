@@ -63,6 +63,39 @@ func TestApplyPlacement_mutatesNodeCapacity(t *testing.T) {
 	}
 }
 
+func TestCommitPlacement_updatesSnapshotAndLiveNode(t *testing.T) {
+	live := map[int64]*model.SysCpodNode{
+		7: {Id: 7, GpuAllocatable: 8, CpuAllocatable: 16, MemAllocatable: 1000},
+	}
+	clusters := []ClusterSnapshot{{
+		CpodID: "c1",
+		Nodes:  []NodeSnapshot{{ID: 7, GPUAllocatable: 8, CPUAllocatable: 16, MemAllocatable: 1000}},
+	}}
+	p := Placement{OK: true, Candidate: Candidate{
+		Cluster: clusters[0],
+		Node:    clusters[0].Nodes[0],
+	}}
+	w := Workload{GPUCount: 2, CPUCores: 1, MemBytes: 100}
+	node := CommitPlacement(clusters, live, p, w)
+	if node == nil || node.GpuAllocatable != 6 {
+		t.Fatalf("live node gpu=%d", live[7].GpuAllocatable)
+	}
+	if clusters[0].Nodes[0].GPUAllocatable != 6 {
+		t.Fatalf("snapshot gpu=%d", clusters[0].Nodes[0].GPUAllocatable)
+	}
+}
+
+func TestBuildClusterSnapshots_sortedByCpodID(t *testing.T) {
+	nodes := []*model.SysCpodNode{
+		{Id: 1, CpodId: "z", NodeName: "n", GpuProd: "G", GpuAllocatable: 1, GpuTotal: 1, CpuAllocatable: 1, MemAllocatable: 1},
+		{Id: 2, CpodId: "a", NodeName: "n", GpuProd: "G", GpuAllocatable: 1, GpuTotal: 1, CpuAllocatable: 1, MemAllocatable: 1},
+	}
+	snap := BuildClusterSnapshots(nodes, nil, nil, nil)
+	if len(snap) != 2 || snap[0].CpodID != "a" || snap[1].CpodID != "z" {
+		t.Fatalf("order=%v %v", snap[0].CpodID, snap[1].CpodID)
+	}
+}
+
 func TestApplyPlacement_noOpWhenNotOK(t *testing.T) {
 	clusters := []ClusterSnapshot{{
 		CpodID: "c1",

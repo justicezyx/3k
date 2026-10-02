@@ -2,23 +2,19 @@ package schedule
 
 import "time"
 
-// WeightsFromConfig builds scoring weights from YAML-style config values.
-// Zero values fall back to defaults for that field.
+// WeightsFromConfig maps YAML weights into scheduling weights.
+// If all four values are zero, DefaultWeights is used (config omitted).
+// Individual zero weights disable that dimension (scaleWeight skips it).
 func WeightsFromConfig(resourceHeadroom, loadBalance, cacheLocality, cost float64) Weights {
-	w := DefaultWeights()
-	if resourceHeadroom > 0 {
-		w.ResourceHeadroom = resourceHeadroom
+	if resourceHeadroom == 0 && loadBalance == 0 && cacheLocality == 0 && cost == 0 {
+		return DefaultWeights()
 	}
-	if loadBalance > 0 {
-		w.LoadBalance = loadBalance
+	return Weights{
+		ResourceHeadroom: resourceHeadroom,
+		LoadBalance:      loadBalance,
+		CacheLocality:    cacheLocality,
+		Cost:             cost,
 	}
-	if cacheLocality > 0 {
-		w.CacheLocality = cacheLocality
-	}
-	if cost > 0 {
-		w.Cost = cost
-	}
-	return w
 }
 
 // ParseFreshWindow parses a duration string; empty or invalid values use fallback.

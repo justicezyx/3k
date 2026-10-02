@@ -1,13 +1,14 @@
 package schedule
 
 import (
+	"sort"
 	"time"
 
 	"sxwl/3k/internal/scheduler/model"
 )
 
 // BuildClusterSnapshots groups DB node rows into per-CPod snapshots.
-// bannedCpodIDs entries are omitted entirely.
+// bannedCpodIDs entries are omitted entirely. Clusters are sorted by CpodID for stable iteration.
 func BuildClusterSnapshots(
 	nodes []*model.SysCpodNode,
 	caches []*model.SysCpodCache,
@@ -55,10 +56,11 @@ func BuildClusterSnapshots(
 		}
 		out = append(out, cs)
 	}
+	sort.Slice(out, func(i, j int) bool { return out[i].CpodID < out[j].CpodID })
 	return out
 }
 
-// ApplyPlacement mutates snapshots after a successful assignment (optimistic portal ledger).
+// ApplyPlacement mutates in-memory cluster snapshots after a successful assignment.
 func ApplyPlacement(clusters []ClusterSnapshot, p Placement, w Workload) {
 	if !p.OK {
 		return
@@ -77,6 +79,27 @@ func ApplyPlacement(clusters []ClusterSnapshot, p Placement, w Workload) {
 			return
 		}
 	}
+}
+
+// CommitPlacement updates both scoring snapshots and live DB node rows for this request.
+func CommitPlacement(
+	clusters []ClusterSnapshot,
+	live map[int64]*model.SysCpodNode,
+	p Placement,
+	w Workload,
+) *model.SysCpodNode {
+	if !p.OK {
+		return nil
+	}
+	ApplyPlacement(clusters, p, w)
+	node, ok := live[p.Candidate.Node.ID]
+	if !ok {
+		return nil
+	}
+	node.GpuAllocatable -= w.GPUCount
+	node.CpuAllocatable -= w.CPUCores
+	node.MemAllocatable -= w.MemBytes
+	return node
 }
 
 // FreshNodeCutoff returns the oldest updated_at still considered alive.

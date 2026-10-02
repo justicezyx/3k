@@ -58,26 +58,19 @@ func (l *CpodJobLogic) CpodJob(req *types.CpodJobReq) (resp *types.CpodJobResp, 
 
 	freshWindow := schedule.ParseFreshWindow(l.svcCtx.Config.Scheduling.NodeFreshWindow, 30*time.Minute)
 	schedEnabled := l.svcCtx.Config.Scheduling.Enabled
-
-	nodes, err := CpodNodeModel.Find(l.ctx, CpodNodeModel.AllFieldsBuilder().Where(squirrel.And{
-		squirrel.Eq{
-			"cpod_id": req.CpodId,
-		},
-		squirrel.Expr("updated_at > NOW() - INTERVAL 30 MINUTE"),
-	}))
-	if err != nil {
-		l.Logger.Errorf("CpodNodeModel Find cpod_id=%s err=%s", req.CpodId, err)
-		return nil, err
-	}
-
-	var clusterSnapshots []schedule.ClusterSnapshot
-	nodeByID := make(map[int64]*model.SysCpodNode)
 	schedWeights := schedule.WeightsFromConfig(
 		l.svcCtx.Config.Scheduling.Weights.ResourceHeadroom,
 		l.svcCtx.Config.Scheduling.Weights.LoadBalance,
 		l.svcCtx.Config.Scheduling.Weights.CacheLocality,
 		l.svcCtx.Config.Scheduling.Weights.Cost,
 	)
+
+	var (
+		nodes            []*model.SysCpodNode
+		clusterSnapshots []schedule.ClusterSnapshot
+		nodeByID         = make(map[int64]*model.SysCpodNode)
+	)
+
 	if schedEnabled {
 		allNodes, err := CpodNodeModel.Find(l.ctx, CpodNodeModel.AllFieldsBuilder().Where(
 			squirrel.Expr("updated_at > ?", schedule.FreshNodeCutoff(freshWindow)),
@@ -88,6 +81,9 @@ func (l *CpodJobLogic) CpodJob(req *types.CpodJobReq) (resp *types.CpodJobResp, 
 		}
 		for _, n := range allNodes {
 			nodeByID[n.Id] = n
+			if n.CpodId == req.CpodId {
+				nodes = append(nodes, n)
+			}
 		}
 		cacheList, err := l.svcCtx.CpodCacheModel.Find(l.ctx, l.svcCtx.CpodCacheModel.AllFieldsBuilder())
 		if err != nil {
@@ -104,6 +100,16 @@ func (l *CpodJobLogic) CpodJob(req *types.CpodJobReq) (resp *types.CpodJobResp, 
 			gpuPrice[row.GPUProd] = row.Amount
 		}
 		clusterSnapshots = schedule.BuildClusterSnapshots(allNodes, cacheList, l.svcCtx.Config.BannedCpod, gpuPrice)
+	} else {
+		var err error
+		nodes, err = CpodNodeModel.Find(l.ctx, CpodNodeModel.AllFieldsBuilder().Where(squirrel.And{
+			squirrel.Eq{"cpod_id": req.CpodId},
+			squirrel.Expr("updated_at > ?", schedule.FreshNodeCutoff(freshWindow)),
+		}))
+		if err != nil {
+			l.Logger.Errorf("CpodNodeModel Find cpod_id=%s err=%s", req.CpodId, err)
+			return nil, err
+		}
 	}
 
 	// finetune and cpodjob
@@ -131,17 +137,17 @@ func (l *CpodJobLogic) CpodJob(req *types.CpodJobReq) (resp *types.CpodJobResp, 
 				}
 				placement := schedule.ScoreForCluster(wl, clusterSnapshots, schedWeights, req.CpodId)
 				if placement.OK {
-					node, ok := nodeByID[placement.Candidate.Node.ID]
-					if ok {
-						assignedJobs = append(assignedJobs, job)
-						node.GpuAllocatable -= job.GpuNumber.Int64
-						node.CpuAllocatable -= 1
-						assignedNodes[node] = true
-						schedule.ApplyPlacement(clusterSnapshots, placement, wl)
-						placed = true
-						l.Logger.Infof("user_job schedule score=%d cpod_id=%s node=%s job_id=%d breakdown=%+v",
-							placement.TotalScore, req.CpodId, node.NodeName, job.JobId, placement.Breakdown)
+					node := schedule.CommitPlacement(clusterSnapshots, nodeByID, placement, wl)
+					if node == nil {
+						l.Logger.Errorf("user_job schedule missing node id=%d cpod_id=%s job_id=%d",
+							placement.Candidate.Node.ID, req.CpodId, job.JobId)
+						continue
 					}
+					assignedJobs = append(assignedJobs, job)
+					assignedNodes[node] = true
+					placed = true
+					l.Logger.Infof("user_job schedule score=%d cpod_id=%s node=%s job_id=%d breakdown=%+v",
+						placement.TotalScore, req.CpodId, node.NodeName, job.JobId, placement.Breakdown)
 				}
 			}
 			if !placed && !schedEnabled {

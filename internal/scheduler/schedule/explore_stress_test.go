@@ -86,8 +86,8 @@ func TestExploreStress_randomSequentialPlacements(t *testing.T) {
 	t.Logf("random polling CPod != global winner: %d / %d simulations (%.1f%%) — pull-model starvation risk",
 		pollWouldStarve, trials*jobsPerTrial, pct(pollWouldStarve, trials*jobsPerTrial))
 
-	if tieCount > 0 && lexTieBreaks == tieCount {
-		t.Log("DEGENERACY: every score tie is broken by cpod_id lex order — low IDs systematically favored")
+	if tieCount > 0 {
+		t.Logf("NOTE: on tied totals, winner cpod_id was lex-min among feasible %d/%d times (tie-break bias when scores equal)", lexTieBreaks, tieCount)
 	}
 	if pct(normCollapsedDims, totalNormDims) > 40 {
 		t.Log("DEGENERACY: normalization often assigns MaxNodeScore to all candidates — dimension stops discriminating")
