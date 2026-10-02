@@ -47,6 +47,7 @@ Billing:
   CronBilling: No
   CronBalance: No
 
+# TODO(YXZ-15): Add Prometheus host/port/path for scheduler_placement_* metrics (YXZ-15).
 Scheduling:
   Enabled: false
   NodeFreshWindow: 30m
