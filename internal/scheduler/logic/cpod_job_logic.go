@@ -2,7 +2,6 @@ package logic
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"strconv"
@@ -15,6 +14,7 @@ import (
 
 	"github.com/Masterminds/squirrel"
 
+	"sxwl/3k/internal/scheduler/schedule"
 	"sxwl/3k/internal/scheduler/svc"
 	"sxwl/3k/internal/scheduler/types"
 
@@ -55,15 +55,62 @@ func (l *CpodJobLogic) CpodJob(req *types.CpodJobReq) (resp *types.CpodJobResp, 
 	resp.JupyterlabList = make([]types.JupyterLab, 0)
 	resp.AppJobList = make([]types.AppJobInfo, 0)
 
-	nodes, err := CpodNodeModel.Find(l.ctx, CpodNodeModel.AllFieldsBuilder().Where(squirrel.And{
-		squirrel.Eq{
-			"cpod_id": req.CpodId,
-		},
-		squirrel.Expr("updated_at > NOW() - INTERVAL 30 MINUTE"),
-	}))
-	if err != nil {
-		l.Logger.Errorf("CpodNodeModel Find cpod_id=%s err=%s", req.CpodId, err)
-		return nil, err
+	freshWindow := schedule.ParseFreshWindow(l.svcCtx.Config.Scheduling.NodeFreshWindow, 30*time.Minute)
+	schedEnabled := l.svcCtx.Config.Scheduling.Enabled
+	// TODO(YXZ-15): Pass workload kind/id into scheduleWithClaim; centralize WNS logs/metrics (YXZ-15).
+	// https://linear.app/yxzhao/issue/YXZ-15/scheduler-prometheus-placement-metrics-and-unified-wns-observability
+	schedWeights := schedule.WeightsFromConfig(
+		l.svcCtx.Config.Scheduling.Weights.ResourceHeadroom,
+		l.svcCtx.Config.Scheduling.Weights.LoadBalance,
+		l.svcCtx.Config.Scheduling.Weights.CacheLocality,
+		l.svcCtx.Config.Scheduling.Weights.Cost,
+	)
+
+	var (
+		nodes            []*model.SysCpodNode
+		clusterSnapshots []schedule.ClusterSnapshot
+		nodeByID         = make(map[int64]*model.SysCpodNode)
+	)
+
+	if schedEnabled {
+		allNodes, err := CpodNodeModel.Find(l.ctx, CpodNodeModel.AllFieldsBuilder().Where(
+			squirrel.Expr("updated_at > ?", schedule.FreshNodeCutoff(freshWindow)),
+		))
+		if err != nil {
+			l.Logger.Errorf("CpodNodeModel Find all fresh nodes err=%s", err)
+			return nil, err
+		}
+		for _, n := range allNodes {
+			nodeByID[n.Id] = n
+			if n.CpodId == req.CpodId {
+				nodes = append(nodes, n)
+			}
+		}
+		cacheList, err := l.svcCtx.CpodCacheModel.Find(l.ctx, l.svcCtx.CpodCacheModel.AllFieldsBuilder())
+		if err != nil {
+			l.Logger.Errorf("CpodCacheModel Find err=%s", err)
+			return nil, err
+		}
+		priceRows, err := CpodNodeModel.GpuTypeAndPrice(l.ctx)
+		if err != nil {
+			l.Logger.Errorf("CpodNodeModel GpuTypeAndPrice err=%s", err)
+			return nil, err
+		}
+		gpuPrice := make(map[string]float64)
+		for _, row := range priceRows {
+			gpuPrice[row.GPUProd] = row.Amount
+		}
+		clusterSnapshots = schedule.BuildClusterSnapshots(allNodes, cacheList, l.svcCtx.Config.BannedCpod, gpuPrice)
+	} else {
+		var err error
+		nodes, err = CpodNodeModel.Find(l.ctx, CpodNodeModel.AllFieldsBuilder().Where(squirrel.And{
+			squirrel.Eq{"cpod_id": req.CpodId},
+			squirrel.Expr("updated_at > ?", schedule.FreshNodeCutoff(freshWindow)),
+		}))
+		if err != nil {
+			l.Logger.Errorf("CpodNodeModel Find cpod_id=%s err=%s", req.CpodId, err)
+			return nil, err
+		}
 	}
 
 	// finetune and cpodjob
@@ -81,44 +128,64 @@ func (l *CpodJobLogic) CpodJob(req *types.CpodJobReq) (resp *types.CpodJobResp, 
 	assignedNodes := make(map[*model.SysCpodNode]bool) // 本次被分配任务的node
 
 	for _, job := range jobs {
-		if job.CpodId.String == "" {
-			for _, node := range nodes {
-				// CPU: 1
-				// Memory: 无限制
-				if node.CpuAllocatable < 1 {
-					continue
+		if !job.CpodId.Valid || job.CpodId.String == "" {
+			placed := false
+			if schedEnabled {
+				wl := workloadFromUserJob(job)
+				node, placement, err := l.scheduleWithClaim(clusterSnapshots, nodeByID, schedWeights, req.CpodId, wl, func() (bool, error) {
+					return l.claimUserJob(job.JobId, req.CpodId)
+				})
+				if err != nil {
+					l.Logger.Errorf("user_job claim job_id=%d err=%s", job.JobId, err)
+					return nil, err
 				}
-				if (node.GpuProd == job.GpuType.String && node.GpuAllocatable >= job.GpuNumber.Int64) || job.GpuType.String == "" {
+				if node != nil {
 					assignedJobs = append(assignedJobs, job)
-					node.GpuAllocatable -= job.GpuNumber.Int64
-					node.CpuAllocatable -= 1
 					assignedNodes[node] = true
-					break
+					placed = true
+					// TODO(YXZ-15): Remove once recordSchedulingObs logs breakdown for all workloads (YXZ-15).
+					l.Logger.Infof("user_job schedule score=%d cpod_id=%s node=%s job_id=%d breakdown=%+v",
+						placement.TotalScore, req.CpodId, node.NodeName, job.JobId, placement.Breakdown)
 				}
 			}
-		} else {
-			if job.CpodId.String == req.CpodId {
-				activeJobs = append(activeJobs, job)
+			if !placed && !schedEnabled {
+				for _, node := range nodes {
+					// CPU: 1
+					// Memory: 无限制
+					if node.CpuAllocatable < 1 {
+						continue
+					}
+					if (node.GpuProd == job.GpuType.String && node.GpuAllocatable >= job.GpuNumber.Int64) || job.GpuType.String == "" {
+						node.GpuAllocatable -= job.GpuNumber.Int64
+						node.CpuAllocatable -= 1
+						claimed, err := l.claimUserJob(job.JobId, req.CpodId)
+						if err != nil {
+							return nil, err
+						}
+						if !claimed {
+							node.GpuAllocatable += job.GpuNumber.Int64
+							node.CpuAllocatable += 1
+							continue
+						}
+						assignedJobs = append(assignedJobs, job)
+						assignedNodes[node] = true
+						placed = true
+						break
+					}
+				}
 			}
+			if placed {
+				continue
+			}
+		} else if job.CpodId.Valid && job.CpodId.String == req.CpodId {
+			// TODO(YXZ-16): Jobs with cpod_id set skip global cluster Score; consider node-level WNS with PinCluster (YXZ-16 option B).
+			// https://linear.app/yxzhao/issue/YXZ-16/global-scheduler-wire-workloadpincluster-cpod-affinity
+			activeJobs = append(activeJobs, job)
 		}
 	}
 
 	for _, job := range assignedJobs {
-		_, err = UserJobModel.UpdateColsByCond(l.ctx, UserJobModel.UpdateBuilder().Where(squirrel.Eq{
-			"job_id": job.JobId,
-		}).SetMap(map[string]interface{}{
-			"cpod_id":     req.CpodId,
-			"update_time": sql.NullTime{Time: time.Now(), Valid: true},
-		}))
-		if err != nil {
-			l.Logger.Errorf("user_job assigned job_id=%d job_name=%s cpod_id=%s err=%s",
-				job.JobId, job.JobName.String, req.CpodId, err)
-			return nil, err
-		}
-
 		l.Logger.Infof("user_job assigned job_id=%d job_name=%s cpod_id=%s", job.JobId, job.JobName.String, req.CpodId)
-
-		// set to resp
 		cpodJobResp := map[string]any{}
 		err = json.Unmarshal([]byte(job.JsonAll.String), &cpodJobResp)
 		if err != nil {
@@ -169,34 +236,52 @@ func (l *CpodJobLogic) CpodJob(req *types.CpodJobReq) (resp *types.CpodJobResp, 
 
 		switch service.Status {
 		case model.StatusNotAssigned:
-			for _, node := range nodes {
-				// CPU: 4
-				// Memory: 50G
-				if node.CpuAllocatable < 4 || node.MemAllocatable < storage.GBToBytes(50) {
-					continue
+			assigned := false
+			if schedEnabled {
+				wl := workloadFromInference(service)
+				sid := service.Id
+				// TODO(YXZ-15): WNS breakdown/metrics via scheduleWithClaim (YXZ-15).
+				node, _, err := l.scheduleWithClaim(clusterSnapshots, nodeByID, schedWeights, req.CpodId, wl, func() (bool, error) {
+					return l.claimInference(sid, req.CpodId)
+				})
+				if err != nil {
+					l.Errorf("inference claim inferId=%d err=%s", service.Id, err)
+					return nil, err
 				}
-				if node.GpuProd == service.GpuType.String && node.GpuAllocatable >= service.GpuNumber.Int64 {
-					node.GpuAllocatable -= service.GpuNumber.Int64
-					node.CpuAllocatable -= 4
-					node.MemAllocatable -= storage.GBToBytes(50)
+				if node != nil {
 					assignedNodes[node] = true
-
-					// new assigned
-					_, err = InferenceModel.UpdateColsByCond(l.ctx, InferenceModel.UpdateBuilder().Where(squirrel.Eq{
-						"id": service.Id,
-					}).SetMap(map[string]interface{}{
-						"cpod_id": req.CpodId,
-						"status":  model.StatusAssigned,
-					}))
-					if err != nil {
-						l.Errorf("inference assigned inferId=%d cpod_id=%s err=%s", service.Id, req.CpodId, err)
-						return nil, err
-					}
-					l.Infof("inference assigned inferId=%d cpod_id=%s", service.Id, req.CpodId)
-
-					resp.InferenceServiceList = append(resp.InferenceServiceList, serviceResp)
-					break
+					assigned = true
 				}
+			} else {
+				for _, node := range nodes {
+					if node.CpuAllocatable < 4 || node.MemAllocatable < storage.GBToBytes(50) {
+						continue
+					}
+					if node.GpuProd == service.GpuType.String && node.GpuAllocatable >= service.GpuNumber.Int64 {
+						node.GpuAllocatable -= service.GpuNumber.Int64
+						node.CpuAllocatable -= 4
+						node.MemAllocatable -= storage.GBToBytes(50)
+						claimed, err := l.claimInference(service.Id, req.CpodId)
+						if err != nil {
+							l.Errorf("inference assigned inferId=%d cpod_id=%s err=%s", service.Id, req.CpodId, err)
+							return nil, err
+						}
+						if claimed {
+							assignedNodes[node] = true
+							assigned = true
+						} else {
+							node.GpuAllocatable += service.GpuNumber.Int64
+							node.CpuAllocatable += 4
+							node.MemAllocatable += storage.GBToBytes(50)
+						}
+						break
+					}
+				}
+			}
+			if assigned {
+				serviceResp.CpodId = req.CpodId
+				l.Infof("inference assigned inferId=%d cpod_id=%s", service.Id, req.CpodId)
+				resp.InferenceServiceList = append(resp.InferenceServiceList, serviceResp)
 			}
 		default:
 			resp.InferenceServiceList = append(resp.InferenceServiceList, serviceResp)
@@ -237,8 +322,28 @@ func (l *CpodJobLogic) CpodJob(req *types.CpodJobReq) (resp *types.CpodJobResp, 
 		switch jupyterlab.Status {
 		case model.StatusNotAssigned:
 			assigned := false
-			if jupyterlab.GpuProd == "" {
-				assigned = true
+			if schedEnabled {
+				wl := workloadFromJupyterlab(jupyterlab, jupyterlabResp.Resource)
+				jid := jupyterlab.Id
+				// TODO(YXZ-15): WNS breakdown/metrics via scheduleWithClaim (YXZ-15).
+				node, _, err := l.scheduleWithClaim(clusterSnapshots, nodeByID, schedWeights, req.CpodId, wl, func() (bool, error) {
+					return l.claimJupyterlab(jid, req.CpodId)
+				})
+				if err != nil {
+					l.Errorf("jupyterlab claim id=%d err=%s", jupyterlab.Id, err)
+					return nil, err
+				}
+				if node != nil {
+					assignedNodes[node] = true
+					assigned = true
+				}
+			} else if jupyterlab.GpuProd == "" {
+				claimed, err := l.claimJupyterlab(jupyterlab.Id, req.CpodId)
+				if err != nil {
+					l.Errorf("jupyterlab assigned jupyterId=%d cpod_id=%s err=%s", jupyterlab.Id, req.CpodId, err)
+					return nil, err
+				}
+				assigned = claimed
 			} else {
 				for _, node := range nodes {
 					if node.CpuAllocatable < jupyterlab.CpuCount || node.MemAllocatable < jupyterlab.MemCount {
@@ -248,27 +353,25 @@ func (l *CpodJobLogic) CpodJob(req *types.CpodJobReq) (resp *types.CpodJobResp, 
 						node.GpuAllocatable -= jupyterlab.GpuCount
 						node.CpuAllocatable -= jupyterlab.CpuCount
 						node.MemAllocatable -= jupyterlab.MemCount
-						assignedNodes[node] = true
-						assigned = true
+						claimed, err := l.claimJupyterlab(jupyterlab.Id, req.CpodId)
+						if err != nil {
+							l.Errorf("jupyterlab assigned jupyterId=%d cpod_id=%s err=%s", jupyterlab.Id, req.CpodId, err)
+							return nil, err
+						}
+						if claimed {
+							assignedNodes[node] = true
+							assigned = true
+						} else {
+							node.GpuAllocatable += jupyterlab.GpuCount
+							node.CpuAllocatable += jupyterlab.CpuCount
+							node.MemAllocatable += jupyterlab.MemCount
+						}
 						break
 					}
 				}
 			}
-
-			// new assigned
 			if assigned {
-				_, err = JupyterlabModel.UpdateColsByCond(l.ctx, JupyterlabModel.UpdateBuilder().Where(squirrel.Eq{
-					"id": jupyterlab.Id,
-				}).SetMap(map[string]interface{}{
-					"cpod_id": req.CpodId,
-					"status":  model.StatusAssigned,
-				}))
-				if err != nil {
-					l.Errorf("jupyterlab assigned jupyterId=%d cpod_id=%s err=%s", jupyterlab.Id, req.CpodId, err)
-					return nil, err
-				}
 				l.Infof("jupyterlab assigned jupyterId=%d cpod_id=%s", jupyterlab.Id, req.CpodId)
-
 				resp.JupyterlabList = append(resp.JupyterlabList, jupyterlabResp)
 			}
 		default:
@@ -312,19 +415,38 @@ func (l *CpodJobLogic) CpodJob(req *types.CpodJobReq) (resp *types.CpodJobResp, 
 
 		switch appJob.Status {
 		case model.StatusNotAssigned:
-			_, err = AppJobModel.UpdateColsByCond(l.ctx, AppJobModel.UpdateBuilder().Where(squirrel.Eq{
-				"id": appJob.Id,
-			}).SetMap(map[string]interface{}{
-				"cpod_id": req.CpodId,
-				"status":  model.StatusAssigned,
-			}))
-			if err != nil {
-				l.Errorf("appJob assigned job_name=%s cpod_id=%s err=%s", appJob.JobName, req.CpodId, err)
-				return nil, err
+			assigned := false
+			if schedEnabled {
+				// TODO(YXZ-14): Pass appJob + app into workload builder; scoring uses placeholder 1 CPU today.
+				// https://linear.app/yxzhao/issue/YXZ-14/appjob-resource-model-for-global-scheduler-placement
+				wl := workloadFromAppJob()
+				aid := appJob.Id
+				// TODO(YXZ-15): WNS breakdown/metrics via scheduleWithClaim (YXZ-15).
+				node, _, err := l.scheduleWithClaim(clusterSnapshots, nodeByID, schedWeights, req.CpodId, wl, func() (bool, error) {
+					return l.claimAppJob(aid, req.CpodId)
+				})
+				if err != nil {
+					l.Errorf("appJob claim id=%d err=%s", appJob.Id, err)
+					return nil, err
+				}
+				if node != nil {
+					assignedNodes[node] = true
+					assigned = true
+				}
+			} else {
+				// TODO(YXZ-14): Legacy path claims without node capacity check; align with real AppJob resources.
+				// https://linear.app/yxzhao/issue/YXZ-14/appjob-resource-model-for-global-scheduler-placement
+				claimed, err := l.claimAppJob(appJob.Id, req.CpodId)
+				if err != nil {
+					l.Errorf("appJob assigned job_name=%s cpod_id=%s err=%s", appJob.JobName, req.CpodId, err)
+					return nil, err
+				}
+				assigned = claimed
 			}
-			l.Infof("appJob assigned job_name=%d cpod_id=%s", appJob.Id, req.CpodId)
-
-			resp.AppJobList = append(resp.AppJobList, appJobResp)
+			if assigned {
+				l.Infof("appJob assigned job_name=%d cpod_id=%s", appJob.Id, req.CpodId)
+				resp.AppJobList = append(resp.AppJobList, appJobResp)
+			}
 		default:
 			resp.AppJobList = append(resp.AppJobList, appJobResp)
 		}

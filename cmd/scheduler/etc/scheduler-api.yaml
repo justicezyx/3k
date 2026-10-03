@@ -46,3 +46,13 @@ Billing:
   InitBalance: 100.00
   CronBilling: No
   CronBalance: No
+
+# TODO(YXZ-15): Add Prometheus host/port/path for scheduler_placement_* metrics (YXZ-15).
+Scheduling:
+  Enabled: false
+  NodeFreshWindow: 30m
+  Weights:
+    ResourceHeadroom: 0.35
+    LoadBalance: 0.25
+    CacheLocality: 0.25
+    Cost: 0.15

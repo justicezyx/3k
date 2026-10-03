@@ -64,4 +64,19 @@ type Config struct {
 	ResourceLoad struct {
 		On bool
 	} `json:"-"`
+	Scheduling SchedulingConfig
+}
+
+// SchedulingConfig controls multi-cluster weighted normalized scoring (WNS).
+type SchedulingConfig struct {
+	Enabled         bool
+	NodeFreshWindow string `json:",default=30m"`
+	Weights         scheduleWeights
+}
+
+type scheduleWeights struct {
+	ResourceHeadroom float64 `json:",default=0.35"`
+	LoadBalance      float64 `json:",default=0.25"`
+	CacheLocality    float64 `json:",default=0.25"`
+	Cost             float64 `json:",default=0.15"`
 }

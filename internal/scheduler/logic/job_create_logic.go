@@ -88,6 +88,8 @@ func (l *JobCreateLogic) JobCreate(req *types.JobCreateReq) (resp *types.JobCrea
 		userJob.DatasetName = orm.NullString(req.ModelName)
 	}
 	if req.CpodID != "" {
+		// TODO(YXZ-16): Document how create-time CpodID relates to WNS PinCluster vs pre-bound cpod_id (CpodJob activeJobs path).
+		// https://linear.app/yxzhao/issue/YXZ-16/global-scheduler-wire-workloadpincluster-cpod-affinity
 		userJob.CpodId = orm.NullString(req.CpodID)
 	}
 	userJob.CreateTime = orm.NullTime(time.Now())
