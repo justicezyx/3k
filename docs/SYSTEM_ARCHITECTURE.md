@@ -99,7 +99,7 @@
 
 - **ModelStorage**：表示一个模型；来源可为开源仓库或 OSS；通过 Artifact Download Job 落到 PVC；可选 TensorRT 转换。
 - **DataSetStorage**：表示一个数据集；由各控制器按需创建并触发下载 Job；公开资源存放在 public namespace，用户使用时在用户 namespace 创建「引用」或拷贝元数据（不拷贝大文件，见 NAMESPACEISOLATION.md）。
-- **命名空间**：按用户/租户划分；公开模型与数据集集中在 public namespace；资源配额、网络策略等可按 namespace 配置（见 [NAMESPACEISOLATION.md](./NAMESPACEISOLATION.md)）。
+- **命名空间**：按用户/租户划分；公开模型与数据集集中在 public namespace；Kubernetes 命名空间级 **ResourceQuota**、网络策略等可按 namespace 配置（见 [NAMESPACEISOLATION.md](./NAMESPACEISOLATION.md)）。Portal 侧按用户的 **GPU 并发配额**（MySQL `sys_quota`，任务创建时可选检查）见 [QUOTA.md](./QUOTA.md)，与 K8s ResourceQuota、账户余额相互独立。
 
 ---
 
@@ -143,6 +143,7 @@ cpodoperator/
 ## 七、相关文档
 
 - [GLOBAL_SCHEDULER_SCORING.md](./GLOBAL_SCHEDULER_SCORING.md)：多集群全局调度与加权归一化打分（WNS）设计。
+- [QUOTA.md](./QUOTA.md)：Portal 用户 GPU 并发配额（`sys_quota` / `CheckQuota`）与余额、K8s ResourceQuota 的区别。
 - [CPOD_OPERATOR.md](./CPOD_OPERATOR.md)：CRD 类型说明与使用示例。
 - [NAMESPACEISOLATION.md](./NAMESPACEISOLATION.md)：基于 namespace 的隔离与公开资源拷贝策略。
 - [BILLING.md](./BILLING.md)：计费相关（待完善）。
