@@ -69,7 +69,7 @@ type Config struct {
 
 // SchedulingConfig controls multi-cluster weighted normalized scoring (WNS).
 type SchedulingConfig struct {
-	Enabled         bool
+	Enabled         bool `json:",default=true"`
 	NodeFreshWindow string `json:",default=30m"`
 	Weights         scheduleWeights
 }

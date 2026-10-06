@@ -6,7 +6,7 @@ GitHub Issues are disabled on `justicezyx/3k`; this file mirrors the issue for r
 
 ## Background
 
-The global multi-cluster scheduler (`internal/scheduler/schedule`) scores feasible `(CPod, node)` pairs using a `Workload` struct (GPU product/count, CPU, memory, cache IDs). Integration lives in `CpodJob` when `Scheduling.Enabled` is true (`internal/scheduler/logic/cpod_job_logic.go`, `cpod_schedule.go`).
+The global multi-cluster scheduler (`internal/scheduler/schedule`) scores feasible `(CPod, node)` pairs using a `Workload` struct (GPU product/count, CPU, memory, cache IDs). Integration lives in `CpodJob` (`internal/scheduler/logic/cpod_job_logic.go`, `cpod_schedule.go`).
 
 Training jobs, inference, and JupyterLab map DB fields (and Jupyter `Resource` JSON) into `Workload`. AppJobs are different: capacity is defined by the app template YAML (`SysApp.Crd`) and optional job `Meta`, not columns on `sys_app_job`.
 

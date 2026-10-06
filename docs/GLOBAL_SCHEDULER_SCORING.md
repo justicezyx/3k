@@ -34,7 +34,7 @@ sequenceDiagram
 
 1. **非全局最优**：`cpod_id` 为空的任务会被**第一个**来 poll 且本地能放下的 CPod 拿走，与集群负载、数据局部性无关。
 2. **顺序敏感**：DB 返回节点/任务顺序影响结果，不可复现。
-3. **AppJob 无资源校验**：YAML 应用任务对任意 poll 的 CPod 直接绑定（`Scheduling.Enabled` 时仍用占位 `Workload{CPUCores:1}`，见 [YXZ-14](https://linear.app/yxzhao/issue/YXZ-14/appjob-resource-model-for-global-scheduler-placement)）。
+3. **AppJob 无资源校验**：YAML 应用任务仍用占位 `Workload{CPUCores:1}` 参与 WNS（见 [YXZ-14](https://linear.app/yxzhao/issue/YXZ-14/appjob-resource-model-for-global-scheduler-placement)）。
 4. **双账本风险**：Portal 在 `cpod_job` 中扣减 `gpu_allocatable`，心跳在 `cpod_status` 全量覆盖 K8s 真实值；打分应主要依据**心跳快照**，Portal 扣减仅作并发占位（短期）。
 
 ---
@@ -141,10 +141,10 @@ flowchart TB
 
 ### 5.1 集成注意（`CpodJob`）
 
-- `Scheduling.Enabled=true` 时：一次加载全部 fresh 节点，构建 `clusterSnapshots`；本 CPod 的 `nodes` 与 `nodeByID` **共享同一指针**，训练任务分配后推理/Jupyter 能看到扣减后的容量。
+- `CpodJob` 一次加载全部 fresh 节点，构建 `clusterSnapshots`；`nodeByID` 与 snapshot 内节点 **共享同一指针**，训练任务分配后推理/Jupyter 能看到扣减后的容量。
 - `CommitPlacement` 同时更新 snapshot（后续 Score）与 live node（DB 落库）。
 - 同一请求内多个 pending 任务按 DB 顺序依次 Score；跨 CPod 并发 poll 通过 **乐观 claim**（`UPDATE … WHERE cpod_id IS NULL/''`）避免双分配，失败则 `RevertPlacement`。
-- 训练 / 推理 / JupyterLab / AppJob 在 `Scheduling.Enabled` 时均走全局 Score；legacy 路径也使用 claim。
+- 训练 / 推理 / JupyterLab / AppJob 均走全局 WNS + claim（无 legacy first-fit 分支）。
 
 ### 5.2 已知算法局限（探索性测试 `explore_stress_test.go`）
 
@@ -235,7 +235,7 @@ Scheduling:
     Cost: 0.15
 ```
 
-`Enabled: false` 时回退 legacy first-fit（仅本 CPod 节点列表）。
+`Enabled` 默认为 `true`；`CpodJob` 始终使用 WNS（该字段保留供将来开关或文档对齐，当前代码不读取）。
 
 ---
 
