@@ -161,7 +161,56 @@ flowchart TB
 - **网络/地域**：`region`、`latency_ms` 标签。
 - **队列等待**：pending 越久权重微调（公平性）。
 - **能耗 / 碳强度**：外部指标注入 ClusterSnapshot。
-- **多副本 gang**：改为「集群级可行 + 集群内 bin-pack」两阶段。
+- **多副本 gang**：改为「集群级可行 + CPod 级打分」；节点级 gang 装箱由 CPod 内 Volcano / training-operator 完成（见 §5.4）。
+
+### 5.4 Gang 调度：CPod 候选与两种可选打分（目标设计）
+
+**适用范围：** `R > 1` 且每个 worker 需要 `G` 块同型号 GPU；**每个 replica 占不同 node**（禁止同一 node 上叠多个 gang worker）。
+
+**符号：**
+
+- `N_w`：该 CPod 内「能放下 **1 个 replica**」的节点集合（与现 `feasibleCandidate` 对单 replica 的硬约束一致：GPU 型号、`allocatable ≥ G`、CPU/内存等）。
+- 单节点放置 1 replica 后的相对余量：\(h_1(n) = \max(0,\ (\text{allocatable}(n)-G)/\text{total}(n))\)，再 ×100 与现 `MaxNodeScore` 对齐。
+
+**硬过滤（gang）：** CPod 可行当且仅当 **`|N_w| ≥ R`**。WNS 候选从「CPod×Node 笛卡尔积」改为 **每个 CPod 一个候选**（只 bind `cpod_id`，不 bind 全局 node）。
+
+**与现有四维关系：** `cache_locality`、`load_balance`、`cost` 仍为 **CPod 级**；`resource_headroom` 在 `R=1` 时保留现 per-node 语义；`R>1` 时用下面两种 **可选** 维度替代（或补充）集群内 headroom，YAML **权重为 0 即关闭**。
+
+#### 可选方法一：`eligible_pool_headroom`（eligible 池聚合）
+
+在 **不选定** 具体 R 个节点的前提下，对 **整个 `N_w`** 做聚合（可配置用 **min** 或 **mean**，二选一实现即可）：
+
+| 变体 | 原始分（×100） | 含义 |
+|------|----------------|------|
+| **min** | \(\min_{n \in N_w} h_1(n)\) | 最弱 eligible 主机上的余量——池子里「最差也能放 1 replica」的节点有多好 |
+| **mean** | \(\mathrm{mean}_{n \in N_w} h_1(n)\) | eligible 池平均健康度 |
+
+**特点：** 反映 CPod 上 **可承载单 replica 的节点池** 整体质量；不直接模拟 R 节点同时落位。可与 `|N_w|` 一起用于审计（宽度不足则已被 gang 过滤拒绝）。
+
+#### 可选方法二：`gang_bottleneck_headroom`（Top-R 贪心装箱）
+
+在 **`N_w` 上选定 R 个不同 node**，每个放 1 replica，再对 **这 R 个节点** 算 bottleneck：
+
+1. 将 `N_w` 按 `allocatable` GPU **降序**排序（同分按 `node_name` 字典序）。
+2. 取前 **R** 个节点 \(n_1,\ldots,n_R\)（贪心 Top-R；**不**允许同一 node 多 worker）。
+3. 原始分：\(h_{\text{gang}} = \min_{i=1..R} h_1(n_i)\)（×100）。
+
+**特点：** 直接回答「若 gang 落在当前最紧的 R 个 eligible 主机上，最瓶颈的那台还剩多少比例余量」。后续可升级为在 `N_w` 上求 max-min 的最优 R 子集（R 小时枚举），**Top-R 贪心为默认实现**。
+
+**`R = 1`：** 方法二退化为在 `N_w` 上取 **\(h_1\) 最大** 的单 node（与现 `resource_headroom` 一致）；方法一 min/mean 在单节点池上等价。
+
+**归一化：** 每个 CPod 产生上述维度的 **一个 raw 值**；在当次所有 **gang 可行 CPod** 上对该维度做现有 `normalizeScores`，再加权求和。不要对 `N_w` 内每个 node 单独进全局 WNS 候选，避免与「R 个不同 node」语义冲突。
+
+**配置示例（概念）：**
+
+```yaml
+Scheduling:
+  Weights:
+    GangEligiblePoolHeadroom: 0.0   # 0 = 关闭 eligible 池 min/mean
+    GangBottleneckHeadroom: 0.0     # 0 = 关闭 Top-R bottleneck；R>1 时建议与 resource_headroom 二选一
+```
+
+详见 [GLOBAL_SCHEDULER_CONTROL_PLANE.md](./GLOBAL_SCHEDULER_CONTROL_PLANE.md)（bind 仅 `cpod_id`、CPod 内 post-bind 不变）。
 
 ---
 

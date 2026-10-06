@@ -105,6 +105,37 @@ Training **CPodJob** does not create a dedicated per-job Ingress; logs may mount
 
 ### In-cluster compute (after data ready)
 
+```mermaid
+flowchart TB
+  subgraph portal [Portal control plane]
+    direction LR
+    GS[Global scheduler WNS]
+    PS[portalsync]
+  end
+
+  subgraph cpodLine1 [CPod cluster]
+    direction LR
+    CR[CPodJob Inference JupyterLab CRs]
+    CO[cpodoperator controllers]
+    KF[PyTorchJob MPIJob Job]
+  end
+
+  subgraph cpodLine2 [ ]
+    direction RL
+    OP[training-operator mpi-operator KServe]
+    SCH[kube-scheduler and or Volcano]
+    POD[Pods on nodes]
+  end
+
+  GS -->|cpod_id bind| PS
+  PS -->|Create CRs| CR
+  CR --> CO
+  CO -->|after data prep| KF
+  KF --> OP
+  OP --> SCH
+  SCH --> POD
+```
+
 - **CPodJob controller:** `CreateBaseJob` → `PyTorchJob`, `MPIJob`, or `batchv1.Job`.
 - **Inference controller:** KServe (and optional Ray) + Ingress.
 - **Pod placement:** Kubeflow operators + in-cluster scheduler(s)—out of scope for global WNS.
