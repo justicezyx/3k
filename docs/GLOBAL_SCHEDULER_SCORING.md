@@ -269,5 +269,6 @@ Scheduling:
 
 ## 十一、相关文档
 
+- [GLOBAL_SCHEDULER_CONTROL_PLANE.md](./GLOBAL_SCHEDULER_CONTROL_PLANE.md)—控制面阶段划分、bind 之后 CPod 本地 prep（下载 / Ingress / 缓存心跳，与 bind/watch 目标正交）
 - [SYSTEM_ARCHITECTURE.md](./SYSTEM_ARCHITECTURE.md)
 - CPod 资源模型：`cpodoperator/pkg/resource/resource.go`
