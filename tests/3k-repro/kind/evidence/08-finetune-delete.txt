@@ -1,0 +1,2 @@
+$ kubectl delete finetune -n p12-ft p12ft --cascade=background --wait=true
+finetune.cpod.cpod "p12ft" deleted from p12-ft namespace

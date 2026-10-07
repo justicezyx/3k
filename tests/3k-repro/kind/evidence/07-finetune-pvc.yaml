@@ -1,0 +1,28 @@
+$ kubectl get pvc -n p12-ft p12ft-cpodjob-ckpt -o yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  creationTimestamp: "2026-10-06T15:10:37Z"
+  finalizers:
+  - kubernetes.io/pvc-protection
+  name: p12ft-cpodjob-ckpt
+  namespace: p12-ft
+  ownerReferences:
+  - apiVersion: cpod.cpod/v1beta1
+    blockOwnerDeletion: true
+    controller: true
+    kind: CPodJob
+    name: p12ft-cpodjob
+    uid: 2b9af924-613a-4d55-b341-185839f89057
+  resourceVersion: "1093"
+  uid: 0cc53d51-29c7-4931-a4a3-f5c4b95a2422
+spec:
+  accessModes:
+  - ReadWriteMany
+  resources:
+    requests:
+      storage: 30Gi
+  storageClassName: juicefs-sc
+  volumeMode: Filesystem
+status:
+  phase: Pending

@@ -12,6 +12,9 @@ run:
     - examples
     - home
     - k8s
+    # Historical gap repro. Compiled only after run.sh copies tests into
+    # NascentCore/3k @ 17b19cf, not as packages of this module.
+    - tests/3k-repro
 
 output:
   sort-results: true

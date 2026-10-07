@@ -1,0 +1,2 @@
+$ kubectl get cpodjob,pvc -n p12-job
+No resources found in p12-job namespace.

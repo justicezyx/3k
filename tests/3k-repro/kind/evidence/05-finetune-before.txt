@@ -1,0 +1,10 @@
+$ kubectl get finetune,cpodjob,pvc -n p12-ft -o wide
+NAME                       MODEL                 DATASET   PHASE
+finetune.cpod.cpod/p12ft   ZhipuAI/chatglm3-6b   p12ds     Running
+
+NAME                              TYPE      AGE
+cpodjob.cpod.cpod/p12ft-cpodjob   pytorch   2s
+
+NAME                                                      STATUS    VOLUME                       CAPACITY   ACCESS MODES   STORAGECLASS   VOLUMEATTRIBUTESCLASS   AGE   VOLUMEMODE
+persistentvolumeclaim/p12-public-model-pv-p12-ft-public   Pending   p12-public-model-pv-p12-ft   0                         juicefs-sc     <unset>                 2s    Filesystem
+persistentvolumeclaim/p12ft-cpodjob-ckpt                  Pending                                                          juicefs-sc     <unset>                 2s    Filesystem
