@@ -10,7 +10,7 @@ The global multi-cluster scheduler (`internal/scheduler/schedule`) scores feasib
 
 Design: `docs/GLOBAL_SCHEDULER_SCORING.md` §3.1 (CPod filter) and §二 (preserve user `cpod_id` affinity).
 
-Production workloads are built in `internal/scheduler/logic/cpod_schedule.go` and scored from `CpodJob` when `Scheduling.Enabled` is true.
+Production workloads are built in `internal/scheduler/logic/cpod_schedule.go` and scored from `CpodJob`.
 
 **Evidence:** `PinCluster` appears only in `types.go`, `feasibleCandidate`, and `TestFilter_pinCluster` — no production builder sets the field.
 

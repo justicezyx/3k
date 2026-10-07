@@ -49,7 +49,7 @@ Billing:
 
 # TODO(YXZ-15): Add Prometheus host/port/path for scheduler_placement_* metrics (YXZ-15).
 Scheduling:
-  Enabled: false
+  Enabled: true
   NodeFreshWindow: 30m
   Weights:
     ResourceHeadroom: 0.35

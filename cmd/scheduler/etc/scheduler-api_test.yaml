@@ -50,7 +50,7 @@ Billing:
   CronBalance: Yes
 
 Scheduling:
-  Enabled: false
+  Enabled: true
   NodeFreshWindow: 30m
   Weights:
     ResourceHeadroom: 0.35

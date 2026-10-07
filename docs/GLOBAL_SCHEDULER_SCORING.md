@@ -34,7 +34,7 @@ sequenceDiagram
 
 1. **非全局最优**：`cpod_id` 为空的任务会被**第一个**来 poll 且本地能放下的 CPod 拿走，与集群负载、数据局部性无关。
 2. **顺序敏感**：DB 返回节点/任务顺序影响结果，不可复现。
-3. **AppJob 无资源校验**：YAML 应用任务对任意 poll 的 CPod 直接绑定（`Scheduling.Enabled` 时仍用占位 `Workload{CPUCores:1}`，见 [YXZ-14](https://linear.app/yxzhao/issue/YXZ-14/appjob-resource-model-for-global-scheduler-placement)）。
+3. **AppJob 无资源校验**：YAML 应用任务仍用占位 `Workload{CPUCores:1}` 参与 WNS（见 [YXZ-14](https://linear.app/yxzhao/issue/YXZ-14/appjob-resource-model-for-global-scheduler-placement)）。
 4. **双账本风险**：Portal 在 `cpod_job` 中扣减 `gpu_allocatable`，心跳在 `cpod_status` 全量覆盖 K8s 真实值；打分应主要依据**心跳快照**，Portal 扣减仅作并发占位（短期）。
 
 ---
@@ -141,10 +141,10 @@ flowchart TB
 
 ### 5.1 集成注意（`CpodJob`）
 
-- `Scheduling.Enabled=true` 时：一次加载全部 fresh 节点，构建 `clusterSnapshots`；本 CPod 的 `nodes` 与 `nodeByID` **共享同一指针**，训练任务分配后推理/Jupyter 能看到扣减后的容量。
+- `CpodJob` 一次加载全部 fresh 节点，构建 `clusterSnapshots`；`nodeByID` 与 snapshot 内节点 **共享同一指针**，训练任务分配后推理/Jupyter 能看到扣减后的容量。
 - `CommitPlacement` 同时更新 snapshot（后续 Score）与 live node（DB 落库）。
 - 同一请求内多个 pending 任务按 DB 顺序依次 Score；跨 CPod 并发 poll 通过 **乐观 claim**（`UPDATE … WHERE cpod_id IS NULL/''`）避免双分配，失败则 `RevertPlacement`。
-- 训练 / 推理 / JupyterLab / AppJob 在 `Scheduling.Enabled` 时均走全局 Score；legacy 路径也使用 claim。
+- 训练 / 推理 / JupyterLab / AppJob 均走全局 WNS + claim（无 legacy first-fit 分支）。
 
 ### 5.2 已知算法局限（探索性测试 `explore_stress_test.go`）
 
@@ -161,7 +161,56 @@ flowchart TB
 - **网络/地域**：`region`、`latency_ms` 标签。
 - **队列等待**：pending 越久权重微调（公平性）。
 - **能耗 / 碳强度**：外部指标注入 ClusterSnapshot。
-- **多副本 gang**：改为「集群级可行 + 集群内 bin-pack」两阶段。
+- **多副本 gang**：改为「集群级可行 + CPod 级打分」；节点级 gang 装箱由 CPod 内 Volcano / training-operator 完成（见 §5.4）。
+
+### 5.4 Gang 调度：CPod 候选与两种可选打分（目标设计）
+
+**适用范围：** `R > 1` 且每个 worker 需要 `G` 块同型号 GPU；**每个 replica 占不同 node**（禁止同一 node 上叠多个 gang worker）。
+
+**符号：**
+
+- `N_w`：该 CPod 内「能放下 **1 个 replica**」的节点集合（与现 `feasibleCandidate` 对单 replica 的硬约束一致：GPU 型号、`allocatable ≥ G`、CPU/内存等）。
+- 单节点放置 1 replica 后的相对余量：\(h_1(n) = \max(0,\ (\text{allocatable}(n)-G)/\text{total}(n))\)，再 ×100 与现 `MaxNodeScore` 对齐。
+
+**硬过滤（gang）：** CPod 可行当且仅当 **`|N_w| ≥ R`**。WNS 候选从「CPod×Node 笛卡尔积」改为 **每个 CPod 一个候选**（只 bind `cpod_id`，不 bind 全局 node）。
+
+**与现有四维关系：** `cache_locality`、`load_balance`、`cost` 仍为 **CPod 级**；`resource_headroom` 在 `R=1` 时保留现 per-node 语义；`R>1` 时用下面两种 **可选** 维度替代（或补充）集群内 headroom，YAML **权重为 0 即关闭**。
+
+#### 可选方法一：`eligible_pool_headroom`（eligible 池聚合）
+
+在 **不选定** 具体 R 个节点的前提下，对 **整个 `N_w`** 做聚合（可配置用 **min** 或 **mean**，二选一实现即可）：
+
+| 变体 | 原始分（×100） | 含义 |
+|------|----------------|------|
+| **min** | \(\min_{n \in N_w} h_1(n)\) | 最弱 eligible 主机上的余量——池子里「最差也能放 1 replica」的节点有多好 |
+| **mean** | \(\mathrm{mean}_{n \in N_w} h_1(n)\) | eligible 池平均健康度 |
+
+**特点：** 反映 CPod 上 **可承载单 replica 的节点池** 整体质量；不直接模拟 R 节点同时落位。可与 `|N_w|` 一起用于审计（宽度不足则已被 gang 过滤拒绝）。
+
+#### 可选方法二：`gang_bottleneck_headroom`（Top-R 贪心装箱）
+
+在 **`N_w` 上选定 R 个不同 node**，每个放 1 replica，再对 **这 R 个节点** 算 bottleneck：
+
+1. 将 `N_w` 按 `allocatable` GPU **降序**排序（同分按 `node_name` 字典序）。
+2. 取前 **R** 个节点 \(n_1,\ldots,n_R\)（贪心 Top-R；**不**允许同一 node 多 worker）。
+3. 原始分：\(h_{\text{gang}} = \min_{i=1..R} h_1(n_i)\)（×100）。
+
+**特点：** 直接回答「若 gang 落在当前最紧的 R 个 eligible 主机上，最瓶颈的那台还剩多少比例余量」。后续可升级为在 `N_w` 上求 max-min 的最优 R 子集（R 小时枚举），**Top-R 贪心为默认实现**。
+
+**`R = 1`：** 方法二退化为在 `N_w` 上取 **\(h_1\) 最大** 的单 node（与现 `resource_headroom` 一致）；方法一 min/mean 在单节点池上等价。
+
+**归一化：** 每个 CPod 产生上述维度的 **一个 raw 值**；在当次所有 **gang 可行 CPod** 上对该维度做现有 `normalizeScores`，再加权求和。不要对 `N_w` 内每个 node 单独进全局 WNS 候选，避免与「R 个不同 node」语义冲突。
+
+**配置示例（概念）：**
+
+```yaml
+Scheduling:
+  Weights:
+    GangEligiblePoolHeadroom: 0.0   # 0 = 关闭 eligible 池 min/mean
+    GangBottleneckHeadroom: 0.0     # 0 = 关闭 Top-R bottleneck；R>1 时建议与 resource_headroom 二选一
+```
+
+详见 [GLOBAL_SCHEDULER_CONTROL_PLANE.md](./GLOBAL_SCHEDULER_CONTROL_PLANE.md)（bind 仅 `cpod_id`、CPod 内 post-bind 不变）。
 
 ---
 
@@ -235,7 +284,7 @@ Scheduling:
     Cost: 0.15
 ```
 
-`Enabled: false` 时回退 legacy first-fit（仅本 CPod 节点列表）。
+`Enabled` 默认为 `true`；`CpodJob` 始终使用 WNS（该字段保留供将来开关或文档对齐，当前代码不读取）。
 
 ---
 
@@ -269,5 +318,6 @@ Scheduling:
 
 ## 十一、相关文档
 
+- [GLOBAL_SCHEDULER_CONTROL_PLANE.md](./GLOBAL_SCHEDULER_CONTROL_PLANE.md)—控制面阶段划分、bind 之后 CPod 本地 prep（下载 / Ingress / 缓存心跳，与 bind/watch 目标正交）
 - [SYSTEM_ARCHITECTURE.md](./SYSTEM_ARCHITECTURE.md)
 - CPod 资源模型：`cpodoperator/pkg/resource/resource.go`

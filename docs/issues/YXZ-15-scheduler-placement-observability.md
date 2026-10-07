@@ -6,7 +6,7 @@ GitHub Issues are disabled on `justicezyx/3k`; this file mirrors the issue for r
 
 ## Background
 
-The global multi-cluster scheduler (weighted normalized scoring, WNS) lives in `internal/scheduler/schedule` and integrates with CPod pull via `CpodJob` when `Scheduling.Enabled` is true (`docs/GLOBAL_SCHEDULER_SCORING.md`).
+The global multi-cluster scheduler (weighted normalized scoring, WNS) lives in `internal/scheduler/schedule` and integrates with CPod pull via `CpodJob` (`docs/GLOBAL_SCHEDULER_SCORING.md`).
 
 Pipeline: load fresh nodes across CPods → `feasibleCandidate` → per-dimension score → `normalizeScores` → weighted sum → `ScoreForCluster` (bind only if polling CPod is the global winner) → optimistic DB claim with `RevertPlacement` on race loss.
 
@@ -17,7 +17,7 @@ P0–P3 (core scoring, all workload types, claims, tests) are implemented. Doc �
 1. **Metrics gap (doc §九)** — No Prometheus counters/histograms (`scheduler_placement_total{workload,result}`, `scheduler_placement_score{workload}`). The scheduler REST service has no custom metrics.
 2. **Logging gap** — `Placement.Breakdown` is logged only for training `user_job` in `cpod_job_logic.go`. Inference, JupyterLab, and AppJob call `scheduleWithClaim` but discard placement details.
 3. **Skip-reason ambiguity** — `ScoreForCluster` returns `OK: false` for both infeasible and global winner ≠ polling CPod, dropping breakdown and winner CPod id.
-4. **Operational impact** — With `Scheduling.Enabled` default false, teams enabling WNS lack dashboards for placement failures, claim races, or score distributions.
+4. **Operational impact** — WNS is on by default in `CpodJob`; teams still lack dashboards for placement failures, claim races, or score distributions until metrics land.
 
 ## Proposed solutions
 
