@@ -11,7 +11,7 @@ This document describes the **portal-side control plane** for federated CPod sch
 | Phase | Where | Responsibility |
 |-------|--------|----------------|
 | Admission | Portal scheduler APIs | Credits, quota, balance (existing create paths) |
-| Schedule | `internal/scheduler/schedule` | WNS: filter → score → normalize → weighted sum; pick **CPod** (target: cluster-level candidates, not global node bind) |
+| Schedule | `internal/scheduler/schedule` | WNS: filter → score → normalize → weighted sum; pick **CPod** (target: cluster-level candidates, not global node bind). Multi-replica gang: **`|N_w| ≥ R`** (one replica per distinct node); optional CPod scores **`eligible_pool_headroom`** and **`gang_bottleneck_headroom`** — see [GLOBAL_SCHEDULER_SCORING.md §5.4](./GLOBAL_SCHEDULER_SCORING.md) |
 | Bind | Portal MySQL | Set **`cpod_id`** only; no Ingress, no OSS, no K8s Pod placement |
 | Notify | Portal → CPod | Target: **SSE assignment watch** to portalsync; relist on reconnect; no steady-state poll for wake |
 | Delivery | CPod **portalsync** | Mirror portal jobs as **CPod CRs** (`CPodJob`, `Inference`, `JupyterLab`, …) on the bound cluster |

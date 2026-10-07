@@ -127,6 +127,11 @@ func scaleWeight(v float64) int64 {
 	return int64(v * 100)
 }
 
+// FeasibleCandidate is the hard filter for a (cluster, node) candidate (exported for design simulations).
+func FeasibleCandidate(workload Workload, candidate Candidate) bool {
+	return feasibleCandidate(workload, candidate)
+}
+
 func feasibleCandidate(workload Workload, candidate Candidate) bool {
 	// TODO(YXZ-16): PinCluster is only set in tests today; production workloads never populate it.
 	// https://linear.app/yxzhao/issue/YXZ-16/global-scheduler-wire-workloadpincluster-cpod-affinity
@@ -146,6 +151,11 @@ func feasibleCandidate(workload Workload, candidate Candidate) bool {
 		return false
 	}
 	return true
+}
+
+// ScoreResourceHeadroom returns raw resource_headroom for one candidate (exported for design simulations).
+func ScoreResourceHeadroom(workload Workload, candidate Candidate) int64 {
+	return scoreResourceHeadroom(workload, candidate)
 }
 
 func scoreResourceHeadroom(workload Workload, candidate Candidate) int64 {
