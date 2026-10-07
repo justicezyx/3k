@@ -1,0 +1,9 @@
+$ kubectl get cpodjob -n p12-ft p12ft-cpodjob
+Error from server (NotFound): cpodjobs.cpod.cpod "p12ft-cpodjob" not found
+
+$ kubectl get pvc -n p12-ft p12ft-cpodjob-ckpt
+Error from server (NotFound): persistentvolumeclaims "p12ft-cpodjob-ckpt" not found
+
+$ kubectl get pvc -n p12-ft
+NAME                                STATUS    VOLUME                       CAPACITY   ACCESS MODES   STORAGECLASS   VOLUMEATTRIBUTESCLASS   AGE
+p12-public-model-pv-p12-ft-public   Pending   p12-public-model-pv-p12-ft   0                         juicefs-sc     <unset>                 2s

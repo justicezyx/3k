@@ -1,0 +1,6 @@
+$ kubectl get cpodjob,pvc -n p12-job -o wide
+NAME                       TYPE      AGE
+cpodjob.cpod.cpod/p12job   pytorch   2s
+
+NAME                                STATUS    VOLUME   CAPACITY   ACCESS MODES   STORAGECLASS   VOLUMEATTRIBUTESCLASS   AGE   VOLUMEMODE
+persistentvolumeclaim/p12job-ckpt   Pending                                      juicefs-sc     <unset>                 1s    Filesystem

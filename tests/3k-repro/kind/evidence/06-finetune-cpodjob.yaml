@@ -1,0 +1,59 @@
+$ kubectl get cpodjob -n p12-ft p12ft-cpodjob -o yaml
+apiVersion: cpod.cpod/v1beta1
+kind: CPodJob
+metadata:
+  annotations:
+    cpod.cpod/baseModelstorageName: ZhipuAI/chatglm3-6b
+    cpod.cpod/cpod-finetune-id: p12ft
+    cpod.cpod/cpod-model-size: "32212254720"
+    cpod.cpod/cpod-model-template: alpaca
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"cpod.cpod/v1beta1","kind":"FineTune","metadata":{"annotations":{},"name":"p12ft","namespace":"p12-ft"},"spec":{"dataset":"p12ds","datasetIsPublic":false,"gpuCount":1,"model":"ZhipuAI/chatglm3-6b"}}
+  creationTimestamp: "2026-10-06T15:10:37Z"
+  generation: 1
+  name: p12ft-cpodjob
+  namespace: p12-ft
+  ownerReferences:
+  - apiVersion: cpod.cpod/v1beta1
+    blockOwnerDeletion: true
+    controller: true
+    kind: FineTune
+    name: p12ft
+    uid: d2d4f691-9ef7-4d8e-879c-21f816037b0f
+  resourceVersion: "1095"
+  uid: 2b9af924-613a-4d55-b341-185839f89057
+spec:
+  args:
+  - 'accelerate launch src/train.py --do_train=True --model_name_or_path=/data/model
+    --dataset=dataset --dataset_dir=/data/dataset --output_dir=/data/save --stage=sft
+    --finetuning_type=lora --lr_scheduler_type=cosine --overwrite_cache=True --gradient_accumulation_steps=4
+    --logging_steps=10 --save_steps=1000 --plot_loss=True --fp16=True --report_to=tensorboard
+    --logging_dir=/logs/p12ft --template=alpaca --lora_target=query_key_value '
+  ckptPath: /data/ckpt
+  ckptVolumeSize: 30720
+  command:
+  - /bin/bash
+  - -c
+  datasetName: p12ds
+  datasetPath: /data/dataset/custom
+  gpuRequiredPerReplica: 1
+  gpuType: NVIDIA-GeForce-RTX-3090
+  image: sxwl-registry.cn-beijing.cr.aliyuncs.com/sxwl-ai/llamafactory:v12
+  jobType: pytorch
+  modelSavePath: /data/save
+  modelSaveVolumeSize: 30720
+  pretrainModelIsPublic: true
+  pretrainModelName: model-storage-10e872cd960e38cb
+  pretrainModelPath: /data/model
+status:
+  conditions:
+  - lastTransitionTime: "2026-10-06T15:10:37Z"
+    message: Cpodjob p12ft-cpodjob is created
+    reason: CpodjobCreated
+    status: "True"
+    type: Created
+  - lastTransitionTime: "2026-10-06T15:10:37Z"
+    message: Data is ready
+    reason: DataReady
+    status: "True"
+    type: DataPreparing
