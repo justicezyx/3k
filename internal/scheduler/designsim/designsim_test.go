@@ -206,4 +206,9 @@ func TestHeadroomOptions_threeVariants(t *testing.T) {
 		lines = append(lines, fmt.Sprintf("%s: %s", o.name, designsim.FormatPlacement(p)))
 	}
 	t.Log(strings.Join(lines, "\n"))
+	pB := designsim.Place(designsim.PolicyCPodGangBottleneck, g, fleet, w)
+	pL := designsim.Place(designsim.PolicyCPodBestNodeHeadroom, g, fleet, w)
+	if pB.OK && pL.OK && pB.CpodID != pL.CpodID {
+		t.Logf("  CRITIQUE: cpod_best_single_node_headroom picked %s vs gang bottleneck %s — do not use portal total-GPU-on-one-node headroom at CPod level for multi-node jobs", pL.CpodID, pB.CpodID)
+	}
 }
